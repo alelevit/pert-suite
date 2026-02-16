@@ -1,0 +1,22 @@
+{
+    "name": "pert-suite-server",
+    "private": true,
+    "version": "1.0.0",
+    "type": "module",
+    "scripts": {
+        "build": "tsc",
+        "start": "node dist/server.js",
+        "dev": "tsx watch server.ts"
+    },
+    "dependencies": {
+        "cors": "^2.8.6",
+        "express": "^5.2.1"
+    },
+    "devDependencies": {
+        "@types/cors": "^2.8.19",
+        "@types/express": "^5.0.6",
+        "@types/node": "^24.10.1",
+        "tsx": "^4.21.0",
+        "typescript": "~5.9.3"
+    }
+}
