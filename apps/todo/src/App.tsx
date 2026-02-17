@@ -363,10 +363,11 @@ function App() {
             if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
             undoTimerRef.current = setTimeout(() => setLastCompleted(null), 5000);
         }
-        // Optimistic: immediately mark completed in local state
-        setAllTodos(prev => prev.map(t =>
-            t.id === id ? { ...t, completed: true, completedAt: Date.now() } : t
-        ));
+        // Optimistic: immediately mark completed in BOTH state arrays
+        const markCompleted = (t: TodoTask) =>
+            t.id === id ? { ...t, completed: true, completedAt: Date.now() } : t;
+        setAllTodos(prev => prev.map(markCompleted));
+        setTodos(prev => prev.map(markCompleted));
         // Fire API in background, revert on failure
         apiCompleteTodo(id).catch(() => refreshTodos());
     };
@@ -374,12 +375,20 @@ function App() {
     const handleUndo = () => {
         if (!lastCompleted) return;
         const { id, todo } = lastCompleted;
-        // Optimistic: restore in local state
+        // Optimistic: restore in BOTH state arrays
         setAllTodos(prev => prev.map(t => t.id === id ? todo : t));
+        setTodos(prev => {
+            // Re-insert the task if it was filtered out
+            const exists = prev.some(t => t.id === id);
+            if (exists) return prev.map(t => t.id === id ? todo : t);
+            return [...prev, todo];
+        });
         setLastCompleted(null);
         if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
-        // Fire API in background
-        apiUpdateTodo(id, { completed: false, completedAt: undefined }).catch(() => refreshTodos());
+        // Fire API in background, then do a full refresh to fix ordering
+        apiUpdateTodo(id, { completed: false, completedAt: undefined })
+            .then(() => refreshTodos())
+            .catch(() => refreshTodos());
     };
 
     const handleDelete = async (id: string) => {
