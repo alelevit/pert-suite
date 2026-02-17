@@ -126,22 +126,29 @@ app.post('/api/projects', (req, res) => {
     res.status(201).json(project);
 });
 
-// PUT /api/projects/:id — update project
+// PUT /api/projects/:id — upsert (update or create) project
 app.put('/api/projects/:id', (req, res) => {
     const existing = readProject(req.params.id);
-    if (!existing) {
-        res.status(404).json({ error: 'Project not found' });
-        return;
+    if (existing) {
+        const updated: SavedProject = {
+            ...existing,
+            ...req.body,
+            id: existing.id,
+            createdAt: existing.createdAt,
+            updatedAt: Date.now()
+        };
+        writeProject(updated);
+        res.json(updated);
+    } else {
+        const project: SavedProject = {
+            ...req.body,
+            id: req.params.id,
+            createdAt: req.body.createdAt || Date.now(),
+            updatedAt: req.body.updatedAt || Date.now(),
+        };
+        writeProject(project);
+        res.status(201).json(project);
     }
-    const updated: SavedProject = {
-        ...existing,
-        ...req.body,
-        id: existing.id,              // Don't allow ID change
-        createdAt: existing.createdAt, // Preserve original creation time
-        updatedAt: Date.now()
-    };
-    writeProject(updated);
-    res.json(updated);
 });
 
 // DELETE /api/projects/:id — delete project
@@ -422,22 +429,30 @@ app.post('/api/todos', (req, res) => {
     res.status(201).json(todo);
 });
 
-// PUT /api/todos/:id — update todo
+// PUT /api/todos/:id — upsert (update or create) todo
 app.put('/api/todos/:id', (req, res) => {
     const existing = readTodo(req.params.id);
-    if (!existing) {
-        res.status(404).json({ error: 'Todo not found' });
-        return;
+    if (existing) {
+        const updated: TodoTask = {
+            ...existing,
+            ...req.body,
+            id: existing.id,
+            createdAt: existing.createdAt,
+            updatedAt: Date.now(),
+        };
+        writeTodo(updated);
+        res.json(updated);
+    } else {
+        // Create new with the given ID
+        const todo: TodoTask = {
+            ...req.body,
+            id: req.params.id,
+            createdAt: req.body.createdAt || Date.now(),
+            updatedAt: req.body.updatedAt || Date.now(),
+        };
+        writeTodo(todo);
+        res.status(201).json(todo);
     }
-    const updated: TodoTask = {
-        ...existing,
-        ...req.body,
-        id: existing.id,
-        createdAt: existing.createdAt,
-        updatedAt: Date.now(),
-    };
-    writeTodo(updated);
-    res.json(updated);
 });
 
 // DELETE /api/todos/:id — delete todo
