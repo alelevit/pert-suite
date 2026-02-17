@@ -957,7 +957,7 @@ function App() {
                             className="fade-in"
                             style={{
                                 position: 'fixed',
-                                bottom: '28px',
+                                bottom: 'calc(28px + env(safe-area-inset-bottom, 0px))',
                                 left: '28px',
                                 padding: '12px 20px',
                                 borderRadius: '24px',
@@ -974,6 +974,7 @@ function App() {
                                 alignItems: 'center',
                                 gap: '6px',
                                 transition: 'transform 0.15s ease, opacity 0.15s ease',
+                                WebkitTapHighlightColor: 'transparent',
                             }}
                         >
                             <RotateCcw size={14} />
@@ -986,10 +987,10 @@ function App() {
                         onClick={() => { setQuickAddOpen(true); setTimeout(() => titleInputRef.current?.focus(), 50); }}
                         style={{
                             position: 'fixed',
-                            bottom: '28px',
+                            bottom: 'calc(28px + env(safe-area-inset-bottom, 0px))',
                             right: '28px',
-                            width: '56px',
-                            height: '56px',
+                            width: isMobile ? '64px' : '56px',
+                            height: isMobile ? '64px' : '56px',
                             borderRadius: '50%',
                             background: 'var(--accent-primary)',
                             color: 'white',
@@ -998,14 +999,16 @@ function App() {
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            boxShadow: '0 4px 20px rgba(99, 102, 241, 0.4)',
+                            boxShadow: '0 6px 24px rgba(99, 102, 241, 0.5)',
                             cursor: 'pointer',
                             border: 'none',
                             zIndex: 50,
                             transition: 'transform 0.15s ease',
+                            WebkitTapHighlightColor: 'transparent',
+                            touchAction: 'manipulation',
                         }}
                     >
-                        <Plus size={28} />
+                        <Plus size={isMobile ? 32 : 28} />
                     </button>
                 </>
             )}
@@ -1459,6 +1462,40 @@ function TaskItem({ task, subtasks, onComplete, onDelete, onCyclePriority, onAdd
                         {task.title}
                     </div>
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '2px', flexWrap: 'wrap' }}>
+                        {/* Overdue / Due Today badge */}
+                        {(() => {
+                            if (!task.dueDate) return null;
+                            const today = getToday();
+                            const dueDateStr = task.dueDate;
+                            if (dueDateStr < today) {
+                                const diffMs = new Date(today).getTime() - new Date(dueDateStr).getTime();
+                                const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+                                return (
+                                    <span style={{
+                                        fontSize: '11px', fontWeight: 600,
+                                        color: 'var(--accent-critical)',
+                                        background: 'var(--accent-critical-soft)',
+                                        padding: '1px 8px', borderRadius: '4px',
+                                        display: 'flex', alignItems: 'center', gap: '3px',
+                                    }}>
+                                        ⚠️ {diffDays}d overdue
+                                    </span>
+                                );
+                            } else if (dueDateStr === today) {
+                                return (
+                                    <span style={{
+                                        fontSize: '11px', fontWeight: 500,
+                                        color: 'var(--accent-warning)',
+                                        background: 'rgba(245, 158, 11, 0.1)',
+                                        padding: '1px 8px', borderRadius: '4px',
+                                        display: 'flex', alignItems: 'center', gap: '3px',
+                                    }}>
+                                        📅 Due today
+                                    </span>
+                                );
+                            }
+                            return null;
+                        })()}
                         {task.recurrence && (
                             <span style={{ fontSize: '11px', color: 'var(--accent-success)', display: 'flex', alignItems: 'center', gap: '3px' }}>
                                 <RotateCcw size={10} /> {task.recurrence.pattern}
