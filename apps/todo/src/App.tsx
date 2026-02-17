@@ -408,6 +408,24 @@ function App() {
         await refreshTodos();
     };
 
+    const handleRescheduleOverdue = async () => {
+        const todayStr = getToday();
+        const overdue = allTodos.filter(t => !t.completed && t.dueDate && t.dueDate < todayStr);
+        if (overdue.length === 0) return;
+        // Optimistic: update due dates locally in both arrays
+        const reschedule = (t: TodoTask) =>
+            (!t.completed && t.dueDate && t.dueDate < todayStr)
+                ? { ...t, dueDate: todayStr }
+                : t;
+        setAllTodos(prev => prev.map(reschedule));
+        setTodos(prev => prev.map(reschedule));
+        // Fire all API calls in parallel
+        await Promise.all(
+            overdue.map(t => apiUpdateTodo(t.id, { dueDate: todayStr }))
+        ).catch(() => { });
+        await refreshTodos();
+    };
+
     const handleAddSubtask = async (parentId: string, title: string) => {
         const parent = allTodos.find(t => t.id === parentId);
         await apiCreateTodo({
@@ -483,6 +501,8 @@ function App() {
 
     const activeTodos = todos.filter(t => !t.completed);
     const completedTodos = todos.filter(t => t.completed);
+    const today = getToday();
+    const overdueTodos = activeTodos.filter(t => t.dueDate && t.dueDate < today);
 
     const recurring = activeTodos.filter(t => t.recurrence);
     const pertLinked = activeTodos.filter(t => !t.recurrence && t.pertProjectId);
@@ -656,6 +676,25 @@ function App() {
                         <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
                             {activeTodos.length} task{activeTodos.length !== 1 ? 's' : ''}
                         </span>
+                        {overdueTodos.length > 0 && (
+                            <button
+                                onClick={handleRescheduleOverdue}
+                                title={`Reschedule ${overdueTodos.length} overdue task${overdueTodos.length !== 1 ? 's' : ''} to today`}
+                                style={{
+                                    display: 'flex', alignItems: 'center', gap: '5px',
+                                    padding: '5px 12px', borderRadius: '8px', fontSize: '12px',
+                                    background: 'var(--accent-critical-soft, rgba(239, 68, 68, 0.12))',
+                                    color: 'var(--accent-critical, #ef4444)',
+                                    border: '1px solid rgba(239, 68, 68, 0.25)',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    transition: 'var(--transition-fast)',
+                                    whiteSpace: 'nowrap',
+                                }}
+                            >
+                                ⏰ Reschedule {overdueTodos.length} to today
+                            </button>
+                        )}
                         <button
                             onClick={handleAdvisorOpen}
                             title="Day Advisor"
