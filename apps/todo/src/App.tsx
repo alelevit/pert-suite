@@ -768,231 +768,253 @@ function App() {
                     )}
                 </div>
 
-                {/* Quick Add Bar */}
-                <div style={{
-                    borderTop: '1px solid var(--border-color)',
-                    padding: '16px 32px',
-                    background: 'var(--bg-panel)',
-                    flexShrink: 0,
-                }}>
-                    {quickAddOpen ? (
-                        <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                            <div style={{ display: 'flex', gap: '8px' }}>
-                                <input
-                                    ref={titleInputRef}
-                                    autoFocus
-                                    value={newTitle}
-                                    onChange={e => setNewTitle(e.target.value)}
-                                    onKeyDown={e => {
-                                        if (e.key === 'Enter' && newTitle.trim()) handleAddTodo();
-                                        if (e.key === 'Escape') { setQuickAddOpen(false); setNewTitle(''); setSuggestedSection(null); }
-                                    }}
-                                    placeholder="What needs to be done?"
-                                    style={{
-                                        flex: 1,
-                                        background: 'var(--bg-input)',
-                                        border: '1px solid var(--border-color-hover)',
-                                        borderRadius: '8px',
-                                        padding: '10px 14px',
-                                        fontSize: '14px',
-                                        outline: 'none',
-                                    }}
-                                />
-                                <button
-                                    onClick={handleAddTodo}
-                                    disabled={!newTitle.trim()}
-                                    style={{
-                                        background: 'var(--accent-primary)',
-                                        color: 'white',
-                                        padding: '10px 20px',
-                                        borderRadius: '8px',
-                                        fontWeight: 500,
-                                        fontSize: '13px',
-                                        opacity: newTitle.trim() ? 1 : 0.5,
-                                        transition: 'var(--transition-fast)',
-                                    }}
-                                >
-                                    Add
-                                </button>
-                                <button
-                                    onClick={() => { setQuickAddOpen(false); setNewTitle(''); setSuggestedSection(null); }}
-                                    style={{ padding: '10px 14px', borderRadius: '8px', color: 'var(--text-muted)', background: 'var(--bg-input)' }}
-                                >
-                                    Cancel
-                                </button>
-                            </div>
-
-                            {/* Detected tokens from natural language */}
-                            {(parsedInfo.detectedDate || parsedInfo.detectedPriority) && (
-                                <div className="fade-in" style={{
-                                    display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap',
-                                    padding: '6px 12px', borderRadius: '8px',
-                                    background: 'rgba(56, 189, 248, 0.08)',
-                                    border: '1px solid rgba(56, 189, 248, 0.15)',
-                                    fontSize: '12px', color: '#7dd3fc',
-                                }}>
-                                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Detected:</span>
-                                    {parsedInfo.detectedDate && (
-                                        <span style={{
-                                            display: 'flex', alignItems: 'center', gap: '4px',
-                                            background: 'rgba(56, 189, 248, 0.15)', padding: '2px 8px', borderRadius: '4px',
-                                        }}>
-                                            📅 {parsedInfo.detectedDateLabel}
-                                            <button
-                                                onClick={() => { setNewDueDate(''); setParsedInfo(p => ({ ...p, detectedDate: null, detectedDateLabel: null })); }}
-                                                style={{ background: 'none', border: 'none', color: '#7dd3fc', cursor: 'pointer', padding: '0 2px', fontSize: '11px' }}
-                                            >×</button>
-                                        </span>
-                                    )}
-                                    {parsedInfo.detectedPriority && (
-                                        <span style={{
-                                            display: 'flex', alignItems: 'center', gap: '4px',
-                                            background: 'rgba(56, 189, 248, 0.15)', padding: '2px 8px', borderRadius: '4px',
-                                            color: getPriorityColor(parsedInfo.detectedPriority),
-                                        }}>
-                                            🚩 {parsedInfo.detectedPriority.toUpperCase()}
-                                            <button
-                                                onClick={() => { setNewPriority('none'); setParsedInfo(p => ({ ...p, detectedPriority: null })); }}
-                                                style={{ background: 'none', border: 'none', color: '#7dd3fc', cursor: 'pointer', padding: '0 2px', fontSize: '11px' }}
-                                            >×</button>
-                                        </span>
-                                    )}
-                                </div>
-                            )}
-
-                            {/* Auto-categorization suggestion */}
-                            {suggestedSection && (
-                                <div className="fade-in" style={{
-                                    display: 'flex', alignItems: 'center', gap: '8px',
-                                    padding: '6px 12px', borderRadius: '8px',
-                                    background: 'rgba(139, 92, 246, 0.1)',
-                                    border: '1px solid rgba(139, 92, 246, 0.2)',
-                                    fontSize: '12px', color: '#a78bfa',
-                                }}>
-                                    <Sparkles size={12} />
-                                    Looks like: {suggestedSection === 'personal' ? '🏠 Personal' : '💼 Work'}
-                                    <button
-                                        onClick={() => { setNewSection(suggestedSection); setSuggestedSection(null); }}
+                {/* Quick Add Bar — on mobile: hidden when closed (+ FAB opens it), shown as fixed overlay when open */}
+                {(!isMobile || quickAddOpen) && (
+                    <div style={{
+                        ...(isMobile && quickAddOpen ? {
+                            position: 'fixed' as const,
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            zIndex: 100,
+                            paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))',
+                        } : {}),
+                        borderTop: '1px solid var(--border-color)',
+                        padding: isMobile ? '16px 16px' : '16px 32px',
+                        background: 'var(--bg-panel)',
+                        flexShrink: 0,
+                    }}>
+                        {quickAddOpen ? (
+                            <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    <input
+                                        ref={titleInputRef}
+                                        autoFocus
+                                        value={newTitle}
+                                        onChange={e => setNewTitle(e.target.value)}
+                                        onKeyDown={e => {
+                                            if (e.key === 'Enter' && newTitle.trim()) handleAddTodo();
+                                            if (e.key === 'Escape') { setQuickAddOpen(false); setNewTitle(''); setSuggestedSection(null); }
+                                        }}
+                                        placeholder="What needs to be done?"
                                         style={{
-                                            padding: '2px 8px', borderRadius: '4px', fontSize: '11px',
-                                            background: 'rgba(139, 92, 246, 0.2)', color: '#a78bfa',
-                                            cursor: 'pointer', border: 'none',
+                                            flex: 1,
+                                            background: 'var(--bg-input)',
+                                            border: '1px solid var(--border-color-hover)',
+                                            borderRadius: '8px',
+                                            padding: '10px 14px',
+                                            fontSize: '16px',
+                                            outline: 'none',
+                                        }}
+                                    />
+                                    <button
+                                        onClick={handleAddTodo}
+                                        disabled={!newTitle.trim()}
+                                        style={{
+                                            background: 'var(--accent-primary)',
+                                            color: 'white',
+                                            padding: '10px 20px',
+                                            borderRadius: '8px',
+                                            fontWeight: 500,
+                                            fontSize: '13px',
+                                            opacity: newTitle.trim() ? 1 : 0.5,
+                                            transition: 'var(--transition-fast)',
                                         }}
                                     >
-                                        Accept
+                                        Add
                                     </button>
                                     <button
-                                        onClick={() => setSuggestedSection(null)}
-                                        style={{
-                                            padding: '2px 8px', borderRadius: '4px', fontSize: '11px',
-                                            background: 'transparent', color: 'var(--text-faint)',
-                                            cursor: 'pointer', border: 'none',
-                                        }}
+                                        onClick={() => { setQuickAddOpen(false); setNewTitle(''); setSuggestedSection(null); }}
+                                        style={{ padding: '10px 14px', borderRadius: '8px', color: 'var(--text-muted)', background: 'var(--bg-input)' }}
                                     >
-                                        Dismiss
+                                        Cancel
                                     </button>
                                 </div>
-                            )}
 
-                            {/* Meta row */}
-                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                                <select
-                                    value={newSection}
-                                    onChange={e => setNewSection(e.target.value)}
-                                    style={{
-                                        background: 'var(--bg-input)',
-                                        border: '1px solid var(--border-color)',
-                                        borderRadius: '6px',
-                                        padding: '6px 10px',
-                                        fontSize: '12px',
-                                        color: 'var(--text-secondary)',
-                                        outline: 'none',
-                                    }}
-                                >
-                                    <option value="inbox">📥 Inbox</option>
-                                    <option value="personal">🏠 Personal</option>
-                                    <option value="work">💼 Work</option>
-                                </select>
-                                {/* Priority with hotkey hints */}
-                                <div style={{ display: 'flex', gap: '4px' }}>
-                                    {(['p1', 'p2', 'p3', 'none'] as const).map((p, i) => (
-                                        <button
-                                            key={p}
-                                            onClick={() => setNewPriority(p)}
-                                            title={`${getPriorityLabel(p)} (⌘${i + 1})`}
-                                            style={{
-                                                padding: '4px 8px', borderRadius: '6px', fontSize: '12px',
-                                                background: newPriority === p ? 'rgba(255,255,255,0.12)' : 'var(--bg-input)',
-                                                border: newPriority === p ? `1px solid ${getPriorityColor(p)}` : '1px solid var(--border-color)',
-                                                color: getPriorityColor(p),
-                                                cursor: 'pointer',
+                                {/* Detected tokens from natural language */}
+                                {(parsedInfo.detectedDate || parsedInfo.detectedPriority) && (
+                                    <div className="fade-in" style={{
+                                        display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap',
+                                        padding: '6px 12px', borderRadius: '8px',
+                                        background: 'rgba(56, 189, 248, 0.08)',
+                                        border: '1px solid rgba(56, 189, 248, 0.15)',
+                                        fontSize: '12px', color: '#7dd3fc',
+                                    }}>
+                                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Detected:</span>
+                                        {parsedInfo.detectedDate && (
+                                            <span style={{
                                                 display: 'flex', alignItems: 'center', gap: '4px',
+                                                background: 'rgba(56, 189, 248, 0.15)', padding: '2px 8px', borderRadius: '4px',
+                                            }}>
+                                                📅 {parsedInfo.detectedDateLabel}
+                                                <button
+                                                    onClick={() => { setNewDueDate(''); setParsedInfo(p => ({ ...p, detectedDate: null, detectedDateLabel: null })); }}
+                                                    style={{ background: 'none', border: 'none', color: '#7dd3fc', cursor: 'pointer', padding: '0 2px', fontSize: '11px' }}
+                                                >×</button>
+                                            </span>
+                                        )}
+                                        {parsedInfo.detectedPriority && (
+                                            <span style={{
+                                                display: 'flex', alignItems: 'center', gap: '4px',
+                                                background: 'rgba(56, 189, 248, 0.15)', padding: '2px 8px', borderRadius: '4px',
+                                                color: getPriorityColor(parsedInfo.detectedPriority),
+                                            }}>
+                                                🚩 {parsedInfo.detectedPriority.toUpperCase()}
+                                                <button
+                                                    onClick={() => { setNewPriority('none'); setParsedInfo(p => ({ ...p, detectedPriority: null })); }}
+                                                    style={{ background: 'none', border: 'none', color: '#7dd3fc', cursor: 'pointer', padding: '0 2px', fontSize: '11px' }}
+                                                >×</button>
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Auto-categorization suggestion */}
+                                {suggestedSection && (
+                                    <div className="fade-in" style={{
+                                        display: 'flex', alignItems: 'center', gap: '8px',
+                                        padding: '6px 12px', borderRadius: '8px',
+                                        background: 'rgba(139, 92, 246, 0.1)',
+                                        border: '1px solid rgba(139, 92, 246, 0.2)',
+                                        fontSize: '12px', color: '#a78bfa',
+                                    }}>
+                                        <Sparkles size={12} />
+                                        Looks like: {suggestedSection === 'personal' ? '🏠 Personal' : '💼 Work'}
+                                        <button
+                                            onClick={() => { setNewSection(suggestedSection); setSuggestedSection(null); }}
+                                            style={{
+                                                padding: '2px 8px', borderRadius: '4px', fontSize: '11px',
+                                                background: 'rgba(139, 92, 246, 0.2)', color: '#a78bfa',
+                                                cursor: 'pointer', border: 'none',
                                             }}
                                         >
-                                            <Flag size={10} />
-                                            <span style={{ fontSize: '10px', opacity: 0.6 }}>{i + 1}</span>
+                                            Accept
                                         </button>
-                                    ))}
+                                        <button
+                                            onClick={() => setSuggestedSection(null)}
+                                            style={{
+                                                padding: '2px 8px', borderRadius: '4px', fontSize: '11px',
+                                                background: 'transparent', color: 'var(--text-faint)',
+                                                cursor: 'pointer', border: 'none',
+                                            }}
+                                        >
+                                            Dismiss
+                                        </button>
+                                    </div>
+                                )}
+
+                                {/* Meta row */}
+                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                    <select
+                                        value={newSection}
+                                        onChange={e => setNewSection(e.target.value)}
+                                        style={{
+                                            background: 'var(--bg-input)',
+                                            border: '1px solid var(--border-color)',
+                                            borderRadius: '6px',
+                                            padding: '6px 10px',
+                                            fontSize: '12px',
+                                            color: 'var(--text-secondary)',
+                                            outline: 'none',
+                                        }}
+                                    >
+                                        <option value="inbox">📥 Inbox</option>
+                                        <option value="personal">🏠 Personal</option>
+                                        <option value="work">💼 Work</option>
+                                    </select>
+                                    {/* Priority with hotkey hints */}
+                                    <div style={{ display: 'flex', gap: '4px' }}>
+                                        {(['p1', 'p2', 'p3', 'none'] as const).map((p, i) => (
+                                            <button
+                                                key={p}
+                                                onClick={() => setNewPriority(p)}
+                                                title={`${getPriorityLabel(p)} (⌘${i + 1})`}
+                                                style={{
+                                                    padding: '4px 8px', borderRadius: '6px', fontSize: '12px',
+                                                    background: newPriority === p ? 'rgba(255,255,255,0.12)' : 'var(--bg-input)',
+                                                    border: newPriority === p ? `1px solid ${getPriorityColor(p)}` : '1px solid var(--border-color)',
+                                                    color: getPriorityColor(p),
+                                                    cursor: 'pointer',
+                                                    display: 'flex', alignItems: 'center', gap: '4px',
+                                                }}
+                                            >
+                                                <Flag size={10} />
+                                                <span style={{ fontSize: '10px', opacity: 0.6 }}>{i + 1}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <input
+                                        type="date"
+                                        value={newDueDate}
+                                        onChange={e => setNewDueDate(e.target.value)}
+                                        style={{
+                                            background: 'var(--bg-input)',
+                                            border: '1px solid var(--border-color)',
+                                            borderRadius: '6px',
+                                            padding: '6px 10px',
+                                            fontSize: '12px',
+                                            color: 'var(--text-secondary)',
+                                            outline: 'none',
+                                        }}
+                                    />
+                                    <select
+                                        value={newRecurrence}
+                                        onChange={e => setNewRecurrence(e.target.value)}
+                                        style={{
+                                            background: 'var(--bg-input)',
+                                            border: '1px solid var(--border-color)',
+                                            borderRadius: '6px',
+                                            padding: '6px 10px',
+                                            fontSize: '12px',
+                                            color: newRecurrence ? 'var(--accent-success)' : 'var(--text-secondary)',
+                                            outline: 'none',
+                                        }}
+                                    >
+                                        <option value="">No repeat</option>
+                                        <option value="daily">🔁 Daily</option>
+                                        <option value="weekdays">📅 Weekdays</option>
+                                        <option value="weekly">📆 Weekly</option>
+                                        <option value="monthly">🗓️ Monthly</option>
+                                    </select>
                                 </div>
-                                <input
-                                    type="date"
-                                    value={newDueDate}
-                                    onChange={e => setNewDueDate(e.target.value)}
-                                    style={{
-                                        background: 'var(--bg-input)',
-                                        border: '1px solid var(--border-color)',
-                                        borderRadius: '6px',
-                                        padding: '6px 10px',
-                                        fontSize: '12px',
-                                        color: 'var(--text-secondary)',
-                                        outline: 'none',
-                                    }}
-                                />
-                                <select
-                                    value={newRecurrence}
-                                    onChange={e => setNewRecurrence(e.target.value)}
-                                    style={{
-                                        background: 'var(--bg-input)',
-                                        border: '1px solid var(--border-color)',
-                                        borderRadius: '6px',
-                                        padding: '6px 10px',
-                                        fontSize: '12px',
-                                        color: newRecurrence ? 'var(--accent-success)' : 'var(--text-secondary)',
-                                        outline: 'none',
-                                    }}
-                                >
-                                    <option value="">No repeat</option>
-                                    <option value="daily">🔁 Daily</option>
-                                    <option value="weekdays">📅 Weekdays</option>
-                                    <option value="weekly">📆 Weekly</option>
-                                    <option value="monthly">🗓️ Monthly</option>
-                                </select>
                             </div>
-                        </div>
-                    ) : (
-                        <button
-                            onClick={() => { setQuickAddOpen(true); setTimeout(() => titleInputRef.current?.focus(), 50); }}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '10px',
-                                width: '100%',
-                                padding: '10px 14px',
-                                borderRadius: '8px',
-                                color: 'var(--text-muted)',
-                                fontSize: '14px',
-                                transition: 'var(--transition-fast)',
-                                border: '1px dashed var(--border-color)',
-                            }}
-                        >
-                            <Plus size={18} color="var(--accent-primary)" />
-                            Add task
-                            <span style={{ marginLeft: 'auto', fontSize: '11px', opacity: 0.5 }}>
-                                <kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: '3px' }}>q</kbd>
-                            </span>
-                        </button>
-                    )}
-                </div>
+                        ) : (
+                            <button
+                                onClick={() => { setQuickAddOpen(true); setTimeout(() => titleInputRef.current?.focus(), 50); }}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '10px',
+                                    width: '100%',
+                                    padding: '10px 14px',
+                                    borderRadius: '8px',
+                                    color: 'var(--text-muted)',
+                                    fontSize: '14px',
+                                    transition: 'var(--transition-fast)',
+                                    border: '1px dashed var(--border-color)',
+                                }}
+                            >
+                                <Plus size={18} color="var(--accent-primary)" />
+                                Add task
+                                <span style={{ marginLeft: 'auto', fontSize: '11px', opacity: 0.5 }}>
+                                    <kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: '3px' }}>q</kbd>
+                                </span>
+                            </button>
+                        )}
+                    </div>
+                )}
+                {/* Backdrop overlay when quick-add is open on mobile */}
+                {isMobile && quickAddOpen && (
+                    <div
+                        onClick={() => { setQuickAddOpen(false); setNewTitle(''); setSuggestedSection(null); }}
+                        style={{
+                            position: 'fixed',
+                            inset: 0,
+                            background: 'rgba(0,0,0,0.5)',
+                            zIndex: 99,
+                        }}
+                    />
+                )}
             </main>
 
             {/* ══════════ Floating Action Buttons ══════════ */}
