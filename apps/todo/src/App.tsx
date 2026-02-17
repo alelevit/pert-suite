@@ -171,6 +171,8 @@ function App() {
     const [sections, setSections] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+    const [lastCompleted, setLastCompleted] = useState<{ id: string; todo: TodoTask } | null>(null);
+    const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Quick add
     const [quickAddOpen, setQuickAddOpen] = useState(false);
@@ -354,12 +356,30 @@ function App() {
     };
 
     const handleComplete = async (id: string) => {
+        // Save for undo
+        const original = allTodos.find(t => t.id === id);
+        if (original) {
+            setLastCompleted({ id, todo: { ...original } });
+            if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+            undoTimerRef.current = setTimeout(() => setLastCompleted(null), 5000);
+        }
         // Optimistic: immediately mark completed in local state
         setAllTodos(prev => prev.map(t =>
             t.id === id ? { ...t, completed: true, completedAt: Date.now() } : t
         ));
         // Fire API in background, revert on failure
         apiCompleteTodo(id).catch(() => refreshTodos());
+    };
+
+    const handleUndo = () => {
+        if (!lastCompleted) return;
+        const { id, todo } = lastCompleted;
+        // Optimistic: restore in local state
+        setAllTodos(prev => prev.map(t => t.id === id ? todo : t));
+        setLastCompleted(null);
+        if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+        // Fire API in background
+        apiUpdateTodo(id, { completed: false, completedAt: undefined }).catch(() => refreshTodos());
     };
 
     const handleDelete = async (id: string) => {
@@ -926,6 +946,69 @@ function App() {
                     )}
                 </div>
             </main>
+
+            {/* ══════════ Floating Action Buttons ══════════ */}
+            {!quickAddOpen && !selectedTaskId && (
+                <>
+                    {/* UNDO — lower left, shows for 5s after completing */}
+                    {lastCompleted && (
+                        <button
+                            onClick={handleUndo}
+                            className="fade-in"
+                            style={{
+                                position: 'fixed',
+                                bottom: '28px',
+                                left: '28px',
+                                padding: '12px 20px',
+                                borderRadius: '24px',
+                                background: 'var(--accent-primary)',
+                                color: 'white',
+                                fontSize: '13px',
+                                fontWeight: 600,
+                                letterSpacing: '0.5px',
+                                boxShadow: '0 4px 20px rgba(99, 102, 241, 0.4)',
+                                cursor: 'pointer',
+                                border: 'none',
+                                zIndex: 50,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                transition: 'transform 0.15s ease, opacity 0.15s ease',
+                            }}
+                        >
+                            <RotateCcw size={14} />
+                            UNDO
+                        </button>
+                    )}
+
+                    {/* + ADD — lower right */}
+                    <button
+                        onClick={() => { setQuickAddOpen(true); setTimeout(() => titleInputRef.current?.focus(), 50); }}
+                        style={{
+                            position: 'fixed',
+                            bottom: '28px',
+                            right: '28px',
+                            width: '56px',
+                            height: '56px',
+                            borderRadius: '50%',
+                            background: 'var(--accent-primary)',
+                            color: 'white',
+                            fontSize: '28px',
+                            fontWeight: 300,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            boxShadow: '0 4px 20px rgba(99, 102, 241, 0.4)',
+                            cursor: 'pointer',
+                            border: 'none',
+                            zIndex: 50,
+                            transition: 'transform 0.15s ease',
+                        }}
+                    >
+                        <Plus size={28} />
+                    </button>
+                </>
+            )}
 
             {/* ══════════ Task Detail Panel ══════════ */}
             {selectedTaskId && (() => {
