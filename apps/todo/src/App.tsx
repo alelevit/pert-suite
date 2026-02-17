@@ -1581,9 +1581,9 @@ function TaskItem({ task, subtasks, onComplete, onDelete, onCyclePriority, onAdd
                                 📐 {(task as any).durationDays}d
                             </span>
                         )}
-                        {showDate && task.dueDate && (
+                        {task.dueDate && task.dueDate > getToday() && (
                             <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                <Clock size={10} /> {formatDate(task.dueDate)}
+                                <Clock size={10} /> Due {formatDate(task.dueDate)}
                             </span>
                         )}
                         {showDate && task.scheduledDate && !task.dueDate && (
