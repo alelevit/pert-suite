@@ -1,0 +1,28 @@
+{
+  "name": "pert-suite",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently --names api,pert,todo -c blue,green,magenta \"npm run dev:api\" \"npm run dev:pert\" \"npm run dev:todo\"",
+    "dev:api": "tsx watch server/server.ts",
+    "dev:pert": "npm run dev --workspace=apps/pert-chart",
+    "dev:todo": "npm run dev --workspace=apps/todo"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.10.1",
+    "concurrently": "^9.2.1",
+    "tsx": "^4.21.0",
+    "typescript": "~5.9.3"
+  }
+}
