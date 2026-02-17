@@ -354,8 +354,12 @@ function App() {
     };
 
     const handleComplete = async (id: string) => {
-        await apiCompleteTodo(id);
-        await refreshTodos();
+        // Optimistic: immediately mark completed in local state
+        setAllTodos(prev => prev.map(t =>
+            t.id === id ? { ...t, completed: true, completedAt: Date.now() } : t
+        ));
+        // Fire API in background, revert on failure
+        apiCompleteTodo(id).catch(() => refreshTodos());
     };
 
     const handleDelete = async (id: string) => {
