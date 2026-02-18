@@ -1,0 +1,49 @@
+services:
+  # 1. Backend Service (Express)
+  # Uses "Starter" plan ($7/mo) to prevent spin-down/cold starts.
+  - type: web
+    name: pert-suite-server
+    env: node
+    plan: starter
+    rootDir: server
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: pert-suite-db
+          property: connectionString
+
+  # 2. Todo App (Vite + React)
+  # Static site (Free).
+  - type: static
+    name: pert-suite-todo
+    env: static
+    rootDir: .
+    # Build from root to handle workspace dependencies (if any)
+    buildCommand: npm install && npm run build --workspace=apps/todo
+    staticPublishPath: ./apps/todo/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+  # 3. PERT Chart App (Vite + React)
+  # Static site (Free).
+  - type: static
+    name: pert-suite-pert
+    env: static
+    rootDir: .
+    buildCommand: npm install && npm run build --workspace=apps/pert-chart
+    staticPublishPath: ./apps/pert-chart/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+databases:
+  - name: pert-suite-db
+    databaseName: pert_suite
+    user: pert_suite_user
