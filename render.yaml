@@ -36,8 +36,12 @@ services:
     name: pert-suite-pert
     env: static
     rootDir: .
-    buildCommand: npm install && npm run build --workspace=apps/pert-chart
+    buildCommand: npm install && VITE_API_URL=https://pert-suite-server.onrender.com npm run build --workspace=apps/pert-chart
     staticPublishPath: ./apps/pert-chart/dist
+    headers:
+      - path: /*
+        name: Access-Control-Allow-Origin
+        value: "*"
     routes:
       - type: rewrite
         source: /*
