@@ -90,14 +90,18 @@ function parseNaturalInput(raw: string): ParsedInput {
         text = text.replace(prioMatch[0], ' ').trim();
     }
 
-    // Recurrence: "every day", "every week", "every month", "every quarter", "every weekday"
-    const everyPatternMatch = text.match(/(?:^|\s)every\s+(day|week|month|quarter|quarterly|weekday|weekdays)(?=\s|$)/i);
+    // Recurrence: "every day", "daily", "every week", "weekly", "every month", "monthly", "quarterly", etc.
+    const everyPatternMatch = text.match(/(?:^|\s)(?:every\s+)?(daily|weekly|monthly|quarterly|weekdays?)(?=\s|$)/i)
+        || text.match(/(?:^|\s)every\s+(day|week|month|quarter)(?=\s|$)/i);
     if (everyPatternMatch) {
         const pattern = everyPatternMatch[1].toLowerCase();
         const patternMap: Record<string, { pattern: string; label: string }> = {
             'day': { pattern: 'daily', label: '🔁 Daily' },
+            'daily': { pattern: 'daily', label: '🔁 Daily' },
             'week': { pattern: 'weekly', label: '📆 Weekly' },
+            'weekly': { pattern: 'weekly', label: '📆 Weekly' },
             'month': { pattern: 'monthly', label: '🗓️ Monthly' },
+            'monthly': { pattern: 'monthly', label: '🗓️ Monthly' },
             'quarter': { pattern: 'quarterly', label: '📊 Quarterly' },
             'quarterly': { pattern: 'quarterly', label: '📊 Quarterly' },
             'weekday': { pattern: 'weekdays', label: '📅 Weekdays' },
