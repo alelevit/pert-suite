@@ -59,11 +59,18 @@ const DAY_NAMES: Record<string, number> = {
     friday: 5, fri: 5, saturday: 6, sat: 6,
 };
 
+interface DetectedRecurrence {
+    pattern: string;
+    daysOfWeek?: number[];
+    label: string;
+}
+
 interface ParsedInput {
     cleanTitle: string;
     detectedDate: string | null;
     detectedDateLabel: string | null;
     detectedPriority: 'p1' | 'p2' | 'p3' | null;
+    detectedRecurrence: DetectedRecurrence | null;
 }
 
 function parseNaturalInput(raw: string): ParsedInput {
@@ -71,6 +78,7 @@ function parseNaturalInput(raw: string): ParsedInput {
     let detectedDate: string | null = null;
     let detectedDateLabel: string | null = null;
     let detectedPriority: 'p1' | 'p2' | 'p3' | null = null;
+    let detectedRecurrence: DetectedRecurrence | null = null;
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -80,6 +88,44 @@ function parseNaturalInput(raw: string): ParsedInput {
     if (prioMatch) {
         detectedPriority = prioMatch[1].toLowerCase() as 'p1' | 'p2' | 'p3';
         text = text.replace(prioMatch[0], ' ').trim();
+    }
+
+    // Recurrence: "every day", "every week", "every month", "every quarter", "every weekday"
+    const everyPatternMatch = text.match(/(?:^|\s)every\s+(day|week|month|quarter|quarterly|weekday|weekdays)(?=\s|$)/i);
+    if (everyPatternMatch) {
+        const pattern = everyPatternMatch[1].toLowerCase();
+        const patternMap: Record<string, { pattern: string; label: string }> = {
+            'day': { pattern: 'daily', label: '🔁 Daily' },
+            'week': { pattern: 'weekly', label: '📆 Weekly' },
+            'month': { pattern: 'monthly', label: '🗓️ Monthly' },
+            'quarter': { pattern: 'quarterly', label: '📊 Quarterly' },
+            'quarterly': { pattern: 'quarterly', label: '📊 Quarterly' },
+            'weekday': { pattern: 'weekdays', label: '📅 Weekdays' },
+            'weekdays': { pattern: 'weekdays', label: '📅 Weekdays' },
+        };
+        const mapped = patternMap[pattern];
+        if (mapped) {
+            detectedRecurrence = { pattern: mapped.pattern, label: mapped.label };
+            text = text.replace(everyPatternMatch[0], ' ').trim();
+        }
+    }
+
+    // Recurrence: "every wednesday", "every wed", etc.
+    if (!detectedRecurrence) {
+        for (const [name, dayNum] of Object.entries(DAY_NAMES)) {
+            const regex = new RegExp(`(?:^|\\s)every\\s+(${name})(?=\\s|$)`, 'i');
+            const m = text.match(regex);
+            if (m) {
+                const dayLabel = name.charAt(0).toUpperCase() + name.slice(1, 3);
+                detectedRecurrence = {
+                    pattern: 'specific-day',
+                    daysOfWeek: [dayNum],
+                    label: `🔁 Every ${dayLabel}`,
+                };
+                text = text.replace(m[0], ' ').trim();
+                break;
+            }
+        }
     }
 
     // "today" / "tod" — requires trailing space to avoid premature firing
@@ -96,8 +142,8 @@ function parseNaturalInput(raw: string): ParsedInput {
         detectedDateLabel = 'Tomorrow';
         text = text.replace(/(?:^|\s)(tomorrow|tom|tmrw|tmr)(?=\s)/i, ' ').trim();
     }
-    // Day names: "monday", "wed", etc.
-    else {
+    // Day names: "monday", "wed", etc. (only if NOT part of a recurrence "every" match)
+    else if (!detectedRecurrence) {
         for (const [name, dayNum] of Object.entries(DAY_NAMES)) {
             const regex = new RegExp(`(?:^|\\s)(${name})(?=\\s)`, 'i');
             if (regex.test(text)) {
@@ -139,6 +185,7 @@ function parseNaturalInput(raw: string): ParsedInput {
         detectedDate,
         detectedDateLabel,
         detectedPriority,
+        detectedRecurrence,
     };
 }
 
@@ -188,7 +235,7 @@ function App() {
     const titleInputRef = useRef<HTMLInputElement>(null);
 
     // Parsed from natural language
-    const [parsedInfo, setParsedInfo] = useState<ParsedInput>({ cleanTitle: '', detectedDate: null, detectedDateLabel: null, detectedPriority: null });
+    const [parsedInfo, setParsedInfo] = useState<ParsedInput>({ cleanTitle: '', detectedDate: null, detectedDateLabel: null, detectedPriority: null, detectedRecurrence: null });
 
     // Auto-categorization
     const [suggestedSection, setSuggestedSection] = useState<string | null>(null);
@@ -308,7 +355,7 @@ function App() {
 
     useEffect(() => {
         if (!newTitle.trim()) {
-            setParsedInfo({ cleanTitle: '', detectedDate: null, detectedDateLabel: null, detectedPriority: null });
+            setParsedInfo({ cleanTitle: '', detectedDate: null, detectedDateLabel: null, detectedPriority: null, detectedRecurrence: null });
             setSuggestedSection(null);
             return;
         }
@@ -353,8 +400,19 @@ function App() {
             scheduledDate: (view === 'today' && !isFutureDue) ? getToday() : undefined,
             dueDate: effectiveDueDate,
         };
-        if (newRecurrence) {
-            todo.recurrence = { pattern: newRecurrence as 'daily' | 'weekdays' | 'weekly' | 'monthly' };
+        // Apply recurrence — from natural language detection or dropdown
+        if (parsed.detectedRecurrence) {
+            todo.recurrence = {
+                pattern: parsed.detectedRecurrence.pattern as any,
+                daysOfWeek: parsed.detectedRecurrence.daysOfWeek,
+            };
+        } else if (newRecurrence) {
+            if (newRecurrence.startsWith('specific-day:')) {
+                const dayNum = parseInt(newRecurrence.split(':')[1], 10);
+                todo.recurrence = { pattern: 'specific-day' as any, daysOfWeek: [dayNum] };
+            } else {
+                todo.recurrence = { pattern: newRecurrence as any };
+            }
         }
         await apiCreateTodo(todo);
         setNewTitle('');
@@ -362,7 +420,7 @@ function App() {
         setNewDueDate('');
         setNewRecurrence('');
         setSuggestedSection(null);
-        setParsedInfo({ cleanTitle: '', detectedDate: null, detectedDateLabel: null, detectedPriority: null });
+        setParsedInfo({ cleanTitle: '', detectedDate: null, detectedDateLabel: null, detectedPriority: null, detectedRecurrence: null });
         setQuickAddOpen(false);
         await refreshTodos();
     };
@@ -844,7 +902,7 @@ function App() {
                                 </div>
 
                                 {/* Detected tokens from natural language */}
-                                {(parsedInfo.detectedDate || parsedInfo.detectedPriority) && (
+                                {(parsedInfo.detectedDate || parsedInfo.detectedPriority || parsedInfo.detectedRecurrence) && (
                                     <div className="fade-in" style={{
                                         display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap',
                                         padding: '6px 12px', borderRadius: '8px',
@@ -875,6 +933,19 @@ function App() {
                                                 <button
                                                     onClick={() => { setNewPriority('none'); setParsedInfo(p => ({ ...p, detectedPriority: null })); }}
                                                     style={{ background: 'none', border: 'none', color: '#7dd3fc', cursor: 'pointer', padding: '0 2px', fontSize: '11px' }}
+                                                >×</button>
+                                            </span>
+                                        )}
+                                        {parsedInfo.detectedRecurrence && (
+                                            <span style={{
+                                                display: 'flex', alignItems: 'center', gap: '4px',
+                                                background: 'rgba(34, 197, 94, 0.15)', padding: '2px 8px', borderRadius: '4px',
+                                                color: 'var(--accent-success)',
+                                            }}>
+                                                {parsedInfo.detectedRecurrence.label}
+                                                <button
+                                                    onClick={() => setParsedInfo(p => ({ ...p, detectedRecurrence: null }))}
+                                                    style={{ background: 'none', border: 'none', color: 'var(--accent-success)', cursor: 'pointer', padding: '0 2px', fontSize: '11px' }}
                                                 >×</button>
                                             </span>
                                         )}
@@ -987,6 +1058,16 @@ function App() {
                                         <option value="weekdays">📅 Weekdays</option>
                                         <option value="weekly">📆 Weekly</option>
                                         <option value="monthly">🗓️ Monthly</option>
+                                        <option value="quarterly">📊 Quarterly</option>
+                                        <optgroup label="Every specific day">
+                                            <option value="specific-day:1">Every Monday</option>
+                                            <option value="specific-day:2">Every Tuesday</option>
+                                            <option value="specific-day:3">Every Wednesday</option>
+                                            <option value="specific-day:4">Every Thursday</option>
+                                            <option value="specific-day:5">Every Friday</option>
+                                            <option value="specific-day:6">Every Saturday</option>
+                                            <option value="specific-day:0">Every Sunday</option>
+                                        </optgroup>
                                     </select>
                                 </div>
                             </div>
@@ -1580,7 +1661,21 @@ function TaskItem({ task, subtasks, onComplete, onDelete, onCyclePriority, onAdd
                         })()}
                         {task.recurrence && (
                             <span style={{ fontSize: '11px', color: 'var(--accent-success)', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                <RotateCcw size={10} /> {task.recurrence.pattern}
+                                <RotateCcw size={10} /> {(() => {
+                                    const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                                    switch (task.recurrence.pattern) {
+                                        case 'daily': return 'Daily';
+                                        case 'weekdays': return 'Weekdays';
+                                        case 'weekly': return 'Weekly';
+                                        case 'monthly': return 'Monthly';
+                                        case 'quarterly': return 'Quarterly';
+                                        case 'specific-day': {
+                                            const dayNum = task.recurrence.daysOfWeek?.[0];
+                                            return dayNum !== undefined ? `Every ${DAY_LABELS[dayNum]}` : 'Weekly';
+                                        }
+                                        default: return task.recurrence.pattern;
+                                    }
+                                })()}
                             </span>
                         )}
                         {task.pertProjectName && (

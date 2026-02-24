@@ -30,7 +30,7 @@ export interface SavedProject {
 
 export type Priority = 'p1' | 'p2' | 'p3' | 'none';
 
-export type RecurrencePattern = 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'custom';
+export type RecurrencePattern = 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'quarterly' | 'specific-day' | 'custom';
 
 export interface Recurrence {
     pattern: RecurrencePattern;

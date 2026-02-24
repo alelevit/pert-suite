@@ -97,7 +97,7 @@ interface TodoTask {
     labels: string[];
     section: string;
     recurrence?: {
-        pattern: 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'custom';
+        pattern: 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'quarterly' | 'specific-day' | 'custom';
         interval?: number;
         daysOfWeek?: number[];
     };
@@ -360,6 +360,19 @@ function getNextRecurrenceDate(todo: TodoTask): string {
         case 'monthly':
             today.setMonth(today.getMonth() + interval);
             break;
+        case 'quarterly':
+            today.setMonth(today.getMonth() + 3 * interval);
+            break;
+        case 'specific-day': {
+            // Find next occurrence of the target weekday
+            const targetDay = rec.daysOfWeek?.[0] ?? 1; // default Monday
+            let d = new Date(today);
+            d.setDate(d.getDate() + 1);
+            while (d.getDay() !== targetDay) {
+                d.setDate(d.getDate() + 1);
+            }
+            return d.toISOString().split('T')[0];
+        }
         default:
             today.setDate(today.getDate() + 1);
     }
@@ -424,6 +437,7 @@ app.get('/api/todos/today', async (_req, res) => {
         // Start of today in ms for completed_at comparison
         const todayStart = new Date(today + 'T00:00:00').getTime();
         const isWeekday = new Date().getDay() >= 1 && new Date().getDay() <= 5;
+        const todayDayNum = new Date().getDay(); // 0=Sun, 1=Mon, ...
 
         // SQL-based filtering: non-completed with relevant dates/recurrence,
         // plus tasks completed today
@@ -435,13 +449,18 @@ app.get('/api/todos/today', async (_req, res) => {
                         OR due_date <= $1
                         OR (recurrence IS NOT NULL AND recurrence->>'pattern' = 'daily')
                         ${isWeekday ? `OR (recurrence IS NOT NULL AND recurrence->>'pattern' = 'weekdays')` : ''}
+                        OR (
+                            recurrence IS NOT NULL
+                            AND recurrence->>'pattern' = 'specific-day'
+                            AND recurrence->'daysOfWeek' @> $3::jsonb
+                        )
                     )
                 )
                 OR (
                     completed = true AND completed_at >= $2
                 )
             ${TODO_SORT}`,
-            [today, todayStart]
+            [today, todayStart, JSON.stringify([todayDayNum])]
         );
 
         res.json(result.rows.map(rowToTodo));
