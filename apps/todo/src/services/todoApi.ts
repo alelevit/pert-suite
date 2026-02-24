@@ -3,6 +3,51 @@ import type { TodoTask } from '@pert-suite/shared';
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 // ========================
+// localStorage Cache Layer
+// ========================
+
+const CACHE_KEYS = {
+    today: 'todo_cache_today',
+    inbox: 'todo_cache_inbox',
+    upcoming: 'todo_cache_upcoming',
+    all: 'todo_cache_all',
+    allTodos: 'todo_cache_all_todos',
+    sections: 'todo_cache_sections',
+} as const;
+
+function saveToCache(key: string, data: unknown): void {
+    try {
+        localStorage.setItem(key, JSON.stringify(data));
+    } catch {
+        // localStorage full or unavailable — ignore
+    }
+}
+
+function readFromCache<T>(key: string): T | null {
+    try {
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw) as T : null;
+    } catch {
+        return null;
+    }
+}
+
+/** Get cached todos for the current view (instant render on app launch) */
+export function getCachedTodos(view: 'today' | 'inbox' | 'upcoming' | 'all'): TodoTask[] | null {
+    return readFromCache<TodoTask[]>(CACHE_KEYS[view]);
+}
+
+/** Get cached "all todos" list (for subtask parent mapping) */
+export function getCachedAllTodos(): TodoTask[] | null {
+    return readFromCache<TodoTask[]>(CACHE_KEYS.allTodos);
+}
+
+/** Get cached sections */
+export function getCachedSections(): string[] | null {
+    return readFromCache<string[]>(CACHE_KEYS.sections);
+}
+
+// ========================
 // Todo CRUD
 // ========================
 
@@ -17,13 +62,22 @@ export async function apiGetTodos(params?: {
     if (params?.completed !== undefined) url.searchParams.set('completed', String(params.completed));
     const res = await fetch(url.toString());
     if (!res.ok) throw new Error('Failed to fetch todos');
-    return res.json();
+    const data: TodoTask[] = await res.json();
+    // Cache based on params
+    if (!params || Object.keys(params).length === 0) {
+        saveToCache(CACHE_KEYS.allTodos, data);
+    } else if (params.section === 'inbox' && params.completed === false) {
+        saveToCache(CACHE_KEYS.inbox, data);
+    }
+    return data;
 }
 
 export async function apiGetTodayTodos(): Promise<TodoTask[]> {
     const res = await fetch(`${API_BASE}/todos/today`);
     if (!res.ok) throw new Error('Failed to fetch today todos');
-    return res.json();
+    const data: TodoTask[] = await res.json();
+    saveToCache(CACHE_KEYS.today, data);
+    return data;
 }
 
 export async function apiCreateTodo(todo: Partial<TodoTask>): Promise<TodoTask> {
@@ -60,13 +114,17 @@ export async function apiCompleteTodo(id: string): Promise<{ completed: TodoTask
 export async function apiGetUpcomingTodos(): Promise<TodoTask[]> {
     const res = await fetch(`${API_BASE}/todos/upcoming`);
     if (!res.ok) throw new Error('Failed to fetch upcoming todos');
-    return res.json();
+    const data: TodoTask[] = await res.json();
+    saveToCache(CACHE_KEYS.upcoming, data);
+    return data;
 }
 
 export async function apiGetSections(): Promise<string[]> {
     const res = await fetch(`${API_BASE}/todos/sections`);
     if (!res.ok) throw new Error('Failed to fetch sections');
-    return res.json();
+    const data: string[] = await res.json();
+    saveToCache(CACHE_KEYS.sections, data);
+    return data;
 }
 
 /**

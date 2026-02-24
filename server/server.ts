@@ -50,7 +50,13 @@ async function initDb() {
                 updated_at BIGINT NOT NULL
             )
         `);
-        console.log('✅ Database tables initialized');
+        // Indexes for common query patterns
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_todos_completed ON todos(completed)`);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_todos_scheduled_date ON todos(scheduled_date)`);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_todos_due_date ON todos(due_date)`);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_todos_section ON todos(section)`);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_todos_completed_at ON todos(completed_at)`);
+        console.log('✅ Database tables and indexes initialized');
     } finally {
         client.release();
     }
@@ -415,30 +421,30 @@ app.get('/api/todos/sections', async (_req, res) => {
 app.get('/api/todos/today', async (_req, res) => {
     try {
         const today = new Date().toISOString().split('T')[0];
-        // Get all non-completed todos that are scheduled/due today or earlier,
-        // plus completed todos from today
-        const result = await pool.query(`SELECT * FROM todos ${TODO_SORT}`);
-        const allTodos = result.rows.map(rowToTodo);
+        // Start of today in ms for completed_at comparison
+        const todayStart = new Date(today + 'T00:00:00').getTime();
+        const isWeekday = new Date().getDay() >= 1 && new Date().getDay() <= 5;
 
-        const todayTodos = allTodos.filter(t => {
-            if (t.completed && t.completedAt) {
-                const completedDate = new Date(t.completedAt).toISOString().split('T')[0];
-                return completedDate === today;
-            }
-            if (t.completed) return false;
-            if (t.scheduledDate && t.scheduledDate <= today) return true;
-            if (t.dueDate && t.dueDate <= today) return true;
-            if (t.recurrence && (t.recurrence.pattern === 'daily' || t.recurrence.pattern === 'weekdays')) {
-                if (t.recurrence.pattern === 'weekdays') {
-                    const day = new Date().getDay();
-                    return day >= 1 && day <= 5;
-                }
-                return true;
-            }
-            return false;
-        });
+        // SQL-based filtering: non-completed with relevant dates/recurrence,
+        // plus tasks completed today
+        const result = await pool.query(
+            `SELECT * FROM todos WHERE
+                (
+                    completed = false AND (
+                        scheduled_date <= $1
+                        OR due_date <= $1
+                        OR (recurrence IS NOT NULL AND recurrence->>'pattern' = 'daily')
+                        ${isWeekday ? `OR (recurrence IS NOT NULL AND recurrence->>'pattern' = 'weekdays')` : ''}
+                    )
+                )
+                OR (
+                    completed = true AND completed_at >= $2
+                )
+            ${TODO_SORT}`,
+            [today, todayStart]
+        );
 
-        res.json(todayTodos);
+        res.json(result.rows.map(rowToTodo));
     } catch (err) {
         console.error('Error fetching today todos:', err);
         res.status(500).json({ error: 'Failed to fetch today todos' });

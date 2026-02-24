@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { TodoTask } from '@pert-suite/shared';
-import { apiGetTodos, apiGetTodayTodos, apiGetUpcomingTodos, apiGetSections, apiCreateTodo, apiCompleteTodo, apiDeleteTodo, apiUpdateTodo, apiAnalyzeTodos, mockAnalyzeTodos } from './services/todoApi';
+import { apiGetTodos, apiGetTodayTodos, apiGetUpcomingTodos, apiGetSections, apiCreateTodo, apiCompleteTodo, apiDeleteTodo, apiUpdateTodo, apiAnalyzeTodos, mockAnalyzeTodos, getCachedTodos, getCachedAllTodos, getCachedSections } from './services/todoApi';
 import { Sun, Inbox, Calendar, ChevronRight, ChevronDown, Plus, Check, Trash2, RotateCcw, Flag, Clock, Loader, Tag, X, Settings, Sparkles, Send, HelpCircle, Edit2, Menu } from 'lucide-react';
 
 type View = 'today' | 'inbox' | 'upcoming' | 'all';
@@ -166,10 +166,14 @@ function App() {
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [view, setView] = useState<View>('today');
     const [sectionFilter, setSectionFilter] = useState<string | null>(null);
-    const [todos, setTodos] = useState<TodoTask[]>([]);
-    const [allTodos, setAllTodos] = useState<TodoTask[]>([]);
-    const [sections, setSections] = useState<string[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [todos, setTodos] = useState<TodoTask[]>(() => getCachedTodos('today') || []);
+    const [allTodos, setAllTodos] = useState<TodoTask[]>(() => getCachedAllTodos() || []);
+    const [sections, setSections] = useState<string[]>(() => getCachedSections() || []);
+    const [loading, setLoading] = useState(() => {
+        // Only show loading spinner if we have no cached data
+        const cached = getCachedTodos('today');
+        return !cached || cached.length === 0;
+    });
     const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
     const [lastCompleted, setLastCompleted] = useState<{ id: string; todo: TodoTask } | null>(null);
     const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -218,28 +222,36 @@ function App() {
 
     const refreshTodos = useCallback(async () => {
         try {
-            setLoading(true);
-            let data: TodoTask[];
+            // Only show loading spinner if we have no data at all
+            setLoading(prev => todos.length === 0 ? true : prev);
+
+            // Determine the view-specific fetch
+            let viewFetchPromise: Promise<TodoTask[]>;
             if (sectionFilter) {
-                data = await apiGetTodos({ section: sectionFilter, completed: false });
+                viewFetchPromise = apiGetTodos({ section: sectionFilter, completed: false });
             } else {
                 switch (view) {
                     case 'today':
-                        data = await apiGetTodayTodos();
+                        viewFetchPromise = apiGetTodayTodos();
                         break;
                     case 'inbox':
-                        data = await apiGetTodos({ section: 'inbox', completed: false });
+                        viewFetchPromise = apiGetTodos({ section: 'inbox', completed: false });
                         break;
                     case 'upcoming':
-                        data = await apiGetUpcomingTodos();
+                        viewFetchPromise = apiGetUpcomingTodos();
                         break;
                     default:
-                        data = await apiGetTodos({ completed: false });
+                        viewFetchPromise = apiGetTodos({ completed: false });
                 }
             }
+
+            // Fetch view data AND all todos in PARALLEL
+            const [data, all] = await Promise.all([
+                viewFetchPromise,
+                apiGetTodos(),
+            ]);
+
             setTodos(data);
-            // Always fetch all todos for subtask parent→child mapping
-            const all = await apiGetTodos();
             setAllTodos(all);
         } catch (e) {
             console.error('Failed to load todos:', e);
