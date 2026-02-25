@@ -1850,6 +1850,13 @@ function TaskDetailPanel({ task, allTodos, sections, onClose, onUpdate, onComple
     const [editScheduledDate, setEditScheduledDate] = useState(task.scheduledDate || '');
     const [editPriority, setEditPriority] = useState(task.priority);
     const [editSection, setEditSection] = useState(task.section);
+    const [editRecurrence, setEditRecurrence] = useState(() => {
+        if (!task.recurrence) return '';
+        if (task.recurrence.pattern === 'specific-day' && task.recurrence.daysOfWeek?.[0] !== undefined) {
+            return `specific-day:${task.recurrence.daysOfWeek[0]}`;
+        }
+        return task.recurrence.pattern;
+    });
     const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
     const [showAddSubtask, setShowAddSubtask] = useState(false);
     const subtaskInputRef = useRef<HTMLInputElement>(null);
@@ -1863,7 +1870,14 @@ function TaskDetailPanel({ task, allTodos, sections, onClose, onUpdate, onComple
         setEditScheduledDate(task.scheduledDate || '');
         setEditPriority(task.priority);
         setEditSection(task.section);
-    }, [task.id, task.title, task.description, task.dueDate, task.scheduledDate, task.priority, task.section]);
+        if (!task.recurrence) {
+            setEditRecurrence('');
+        } else if (task.recurrence.pattern === 'specific-day' && task.recurrence.daysOfWeek?.[0] !== undefined) {
+            setEditRecurrence(`specific-day:${task.recurrence.daysOfWeek[0]}`);
+        } else {
+            setEditRecurrence(task.recurrence.pattern);
+        }
+    }, [task.id, task.title, task.description, task.dueDate, task.scheduledDate, task.priority, task.section, task.recurrence]);
 
     // Escape key to close
     useEffect(() => {
@@ -1955,7 +1969,7 @@ function TaskDetailPanel({ task, allTodos, sections, onClose, onUpdate, onComple
                             const val = e.target.value;
                             // Real-time parsing: check for keywords as user types
                             const parsed = parseNaturalInput(val);
-                            if (parsed.detectedPriority || parsed.detectedDate) {
+                            if (parsed.detectedPriority || parsed.detectedDate || parsed.detectedRecurrence) {
                                 // Keyword detected — apply immediately and strip from title
                                 const updates: Partial<TodoTask> = { title: parsed.cleanTitle || val.trim() };
                                 if (parsed.detectedPriority) {
@@ -1965,6 +1979,15 @@ function TaskDetailPanel({ task, allTodos, sections, onClose, onUpdate, onComple
                                 if (parsed.detectedDate) {
                                     updates.dueDate = parsed.detectedDate;
                                     setEditDueDate(parsed.detectedDate);
+                                }
+                                if (parsed.detectedRecurrence) {
+                                    if (parsed.detectedRecurrence.daysOfWeek) {
+                                        updates.recurrence = { pattern: parsed.detectedRecurrence.pattern as any, daysOfWeek: parsed.detectedRecurrence.daysOfWeek };
+                                        setEditRecurrence(`specific-day:${parsed.detectedRecurrence.daysOfWeek[0]}`);
+                                    } else {
+                                        updates.recurrence = { pattern: parsed.detectedRecurrence.pattern as any };
+                                        setEditRecurrence(parsed.detectedRecurrence.pattern);
+                                    }
                                 }
                                 setEditTitle(updates.title!);
                                 onUpdate(updates);
@@ -2095,6 +2118,46 @@ function TaskDetailPanel({ task, allTodos, sections, onClose, onUpdate, onComple
                                 {s === 'personal' ? '🏠 Personal' : s === 'work' ? '💼 Work' : s}
                             </option>
                         ))}
+                    </select>
+                </div>
+
+                {/* Recurrence */}
+                <div>
+                    <label style={fieldLabelStyle}>Repeat</label>
+                    <select
+                        value={editRecurrence}
+                        onChange={e => {
+                            const val = e.target.value;
+                            setEditRecurrence(val);
+                            if (!val) {
+                                onUpdate({ recurrence: undefined });
+                            } else if (val.startsWith('specific-day:')) {
+                                const dayNum = parseInt(val.split(':')[1], 10);
+                                onUpdate({ recurrence: { pattern: 'specific-day' as any, daysOfWeek: [dayNum] } });
+                            } else {
+                                onUpdate({ recurrence: { pattern: val as any } });
+                            }
+                        }}
+                        style={{
+                            ...inputStyle,
+                            color: editRecurrence ? 'var(--accent-success)' : undefined,
+                        }}
+                    >
+                        <option value="">No repeat</option>
+                        <option value="daily">🔁 Daily</option>
+                        <option value="weekdays">📅 Weekdays</option>
+                        <option value="weekly">📆 Weekly</option>
+                        <option value="monthly">🗓️ Monthly</option>
+                        <option value="quarterly">📊 Quarterly</option>
+                        <optgroup label="Every specific day">
+                            <option value="specific-day:1">Every Monday</option>
+                            <option value="specific-day:2">Every Tuesday</option>
+                            <option value="specific-day:3">Every Wednesday</option>
+                            <option value="specific-day:4">Every Thursday</option>
+                            <option value="specific-day:5">Every Friday</option>
+                            <option value="specific-day:6">Every Saturday</option>
+                            <option value="specific-day:0">Every Sunday</option>
+                        </optgroup>
                     </select>
                 </div>
 
