@@ -806,17 +806,39 @@ function App() {
                         </div>
                     ) : (
                         <>
-                            {/* Today view with sections */}
+                            {/* Recurring section — Today only */}
                             {view === 'today' && recurring.length > 0 && (
                                 <TaskGroup title="🔁 Daily" tasks={recurring} onComplete={handleComplete} onDelete={handleDelete} onCyclePriority={handleCyclePriority} onAddSubtask={handleAddSubtask} allTasks={allTodos} showDate={false} onTaskClick={setSelectedTaskId} />
                             )}
-                            {view === 'today' && pertLinked.length > 0 && (
-                                <TaskGroup title="📋 From Projects" tasks={pertLinked} onComplete={handleComplete} onDelete={handleDelete} onCyclePriority={handleCyclePriority} onAddSubtask={handleAddSubtask} allTasks={allTodos} showDate={false} onTaskClick={setSelectedTaskId} />
-                            )}
-                            {view === 'today' ? (
-                                <TaskGroup title={recurring.length > 0 || pertLinked.length > 0 ? '✏️ Tasks' : ''} tasks={regular} onComplete={handleComplete} onDelete={handleDelete} onCyclePriority={handleCyclePriority} onAddSubtask={handleAddSubtask} allTasks={allTodos} showDate={false} onTaskClick={setSelectedTaskId} />
-                            ) : view === 'upcoming' ? (
-                                <TaskGroup title="📅 Upcoming" tasks={activeTodos} onComplete={handleComplete} onDelete={handleDelete} onCyclePriority={handleCyclePriority} onAddSubtask={handleAddSubtask} allTasks={allTodos} showDate onTaskClick={setSelectedTaskId} />
+
+                            {/* Regular tasks (non-project, non-recurring) — shown BEFORE project tasks */}
+                            {(view === 'today' || view === 'inbox' || view === 'upcoming') ? (
+                                <>
+                                    <TaskGroup
+                                        title={view === 'today' ? (recurring.length > 0 || pertLinked.length > 0 ? '✏️ Tasks' : '') : view === 'upcoming' ? '📅 Upcoming' : ''}
+                                        tasks={regular}
+                                        onComplete={handleComplete}
+                                        onDelete={handleDelete}
+                                        onCyclePriority={handleCyclePriority}
+                                        onAddSubtask={handleAddSubtask}
+                                        allTasks={allTodos}
+                                        showDate={view !== 'today'}
+                                        onTaskClick={setSelectedTaskId}
+                                    />
+                                    {pertLinked.length > 0 && (
+                                        <TaskGroup
+                                            title="📋 From Projects"
+                                            tasks={pertLinked}
+                                            onComplete={handleComplete}
+                                            onDelete={handleDelete}
+                                            onCyclePriority={handleCyclePriority}
+                                            onAddSubtask={handleAddSubtask}
+                                            allTasks={allTodos}
+                                            showDate={view !== 'today'}
+                                            onTaskClick={setSelectedTaskId}
+                                        />
+                                    )}
+                                </>
                             ) : (
                                 <TaskGroup title="" tasks={activeTodos} onComplete={handleComplete} onDelete={handleDelete} onCyclePriority={handleCyclePriority} onAddSubtask={handleAddSubtask} allTasks={allTodos} showDate onTaskClick={setSelectedTaskId} />
                             )}
