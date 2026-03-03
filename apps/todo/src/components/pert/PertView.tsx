@@ -19,9 +19,10 @@ function formatShortDate(dateStr: string): string {
 interface PertViewProps {
   allTodos?: TodoTask[];
   onOpenTodoTask?: (todoId: string) => void;
+  pertRefreshKey?: number;
 }
 
-export default function PertView({ allTodos, onOpenTodoTask }: PertViewProps) {
+export default function PertView({ allTodos, onOpenTodoTask, pertRefreshKey }: PertViewProps) {
   const [tasks, setTasks] = useState<PertTask[]>([
     { id: '1', name: 'Define Scope', optimistic: 1, likely: 2, pessimistic: 3, dependencies: [] },
     { id: '2', name: 'Market Research', optimistic: 2, likely: 3, pessimistic: 6, dependencies: ['1'] },
@@ -265,6 +266,20 @@ export default function PertView({ allTodos, onOpenTodoTask }: PertViewProps) {
       // Non-fatal — just use locally loaded data
     }
   };
+
+  // Auto-refresh PERT data when a linked todo is updated
+  useEffect(() => {
+    if (!pertRefreshKey || !currentProjectId || !isLinked) return;
+    (async () => {
+      try {
+        const project = await apiLoadProject(currentProjectId);
+        if (project) {
+          setTasks(project.tasks as PertTask[]);
+          if (project.startDate) setProjectStartDate(project.startDate);
+        }
+      } catch { /* non-fatal */ }
+    })();
+  }, [pertRefreshKey]);
 
   const handleQuickSave = async () => {
     if (currentProjectId) {

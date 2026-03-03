@@ -254,6 +254,7 @@ function App() {
         return !cached || cached.length === 0;
     });
     const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+    const [pertRefreshKey, setPertRefreshKey] = useState(0);
     const [lastCompleted, setLastCompleted] = useState<{ id: string; todo: TodoTask } | null>(null);
     const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -771,6 +772,7 @@ function App() {
                 <PertView
                     allTodos={allTodos}
                     onOpenTodoTask={(todoId) => setSelectedTaskId(todoId)}
+                    pertRefreshKey={pertRefreshKey}
                 />
             ) : (
                 <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -1273,6 +1275,7 @@ function App() {
                         onUpdate={async (updates) => {
                             await apiUpdateTodo(task.id, updates);
                             await refreshTodos();
+                            if (view === 'pert') setPertRefreshKey(k => k + 1);
                         }}
                         onComplete={async () => {
                             await handleComplete(task.id);
