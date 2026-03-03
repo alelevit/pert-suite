@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
+import type { TodoTask } from '@pert-suite/shared';
 import type { PertTask } from '../../logic/pert';
 import { calculateCPM, createEmptyTask, computeCalendarDates } from '../../logic/pert';
 import type { CalendarRange } from '../../logic/pert';
@@ -15,7 +16,12 @@ function formatShortDate(dateStr: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-export default function PertView() {
+interface PertViewProps {
+  allTodos?: TodoTask[];
+  onOpenTodoTask?: (todoId: string) => void;
+}
+
+export default function PertView({ allTodos, onOpenTodoTask }: PertViewProps) {
   const [tasks, setTasks] = useState<PertTask[]>([
     { id: '1', name: 'Define Scope', optimistic: 1, likely: 2, pessimistic: 3, dependencies: [] },
     { id: '2', name: 'Market Research', optimistic: 2, likely: 3, pessimistic: 6, dependencies: ['1'] },
@@ -494,8 +500,8 @@ export default function PertView() {
         </div>
       )}
 
-      {/* Sidebar Toggle Button (when collapsed) */}
-      {!sidebarOpen && (
+      {/* Sidebar Toggle Button (when collapsed and NOT linked) */}
+      {!sidebarOpen && !isLinked && (
         <button
           onClick={() => setSidebarOpen(true)}
           style={{
@@ -509,8 +515,8 @@ export default function PertView() {
         </button>
       )}
 
-      {/* Sidebar */}
-      {sidebarOpen && (
+      {/* Sidebar — hidden when project is linked */}
+      {sidebarOpen && !isLinked && (
         <div style={{
           width: '400px',
           borderRight: '1px solid var(--border-color)',
@@ -664,7 +670,16 @@ export default function PertView() {
 
       {/* Graph Area */}
       <div style={{ flex: 1, background: 'var(--bg-app)', position: 'relative', display: 'flex', flexDirection: 'column' }}>
-        <GraphView pertNodes={pertNodes} calendarDates={calendarDates} />
+        <GraphView
+          pertNodes={pertNodes}
+          calendarDates={calendarDates}
+          onNodeClick={(nodeId) => {
+            if (isLinked && allTodos && onOpenTodoTask && currentProjectId) {
+              const todo = allTodos.find(t => t.pertProjectId === currentProjectId && t.pertTaskId === nodeId);
+              if (todo) onOpenTodoTask(todo.id);
+            }
+          }}
+        />
 
         {/* Generation Input */}
         <div style={{

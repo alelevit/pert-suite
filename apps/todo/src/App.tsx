@@ -768,7 +768,10 @@ function App() {
 
             {/* ══════════ Main Content ══════════ */}
             {view === 'pert' ? (
-                <PertView />
+                <PertView
+                    allTodos={allTodos}
+                    onOpenTodoTask={(todoId) => setSelectedTaskId(todoId)}
+                />
             ) : (
                 <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                     {/* Header */}

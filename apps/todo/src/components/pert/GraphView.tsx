@@ -58,9 +58,10 @@ function getLayoutedElements(nodes: Node[], edges: Edge[]) {
 interface GraphViewProps {
     pertNodes: PertNode[];
     calendarDates?: Map<string, CalendarRange>;
+    onNodeClick?: (nodeId: string) => void;
 }
 
-export default function GraphView({ pertNodes, calendarDates }: GraphViewProps) {
+export default function GraphView({ pertNodes, calendarDates, onNodeClick }: GraphViewProps) {
     const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
@@ -143,6 +144,7 @@ export default function GraphView({ pertNodes, calendarDates }: GraphViewProps) 
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 nodeTypes={nodeTypes}
+                onNodeClick={(_event, node) => onNodeClick?.(node.id)}
                 fitView
                 panOnScroll
                 panOnScrollMode={PanOnScrollMode.Free}
