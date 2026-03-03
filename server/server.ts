@@ -24,10 +24,13 @@ async function initDb() {
                 description TEXT DEFAULT '',
                 tasks JSONB DEFAULT '[]',
                 start_date TEXT,
+                linked BOOLEAN DEFAULT false,
                 created_at BIGINT NOT NULL,
                 updated_at BIGINT NOT NULL
             )
         `);
+        // Add linked column if missing (migration for existing DBs)
+        await client.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS linked BOOLEAN DEFAULT false`);
         await client.query(`
             CREATE TABLE IF NOT EXISTS todos (
                 id TEXT PRIMARY KEY,
@@ -56,6 +59,7 @@ async function initDb() {
         await client.query(`CREATE INDEX IF NOT EXISTS idx_todos_due_date ON todos(due_date)`);
         await client.query(`CREATE INDEX IF NOT EXISTS idx_todos_section ON todos(section)`);
         await client.query(`CREATE INDEX IF NOT EXISTS idx_todos_completed_at ON todos(completed_at)`);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_todos_pert_project ON todos(pert_project_id)`);
         console.log('✅ Database tables and indexes initialized');
     } finally {
         client.release();
@@ -80,6 +84,7 @@ interface SavedProject {
     description: string;
     tasks: unknown[];
     startDate?: string;
+    linked?: boolean;
     createdAt: number;
     updatedAt: number;
 }
@@ -125,6 +130,7 @@ function rowToProject(row: any): SavedProject {
         description: row.description || '',
         tasks: row.tasks || [],
         startDate: row.start_date || undefined,
+        linked: row.linked || false,
         createdAt: Number(row.created_at),
         updatedAt: Number(row.updated_at),
     };
@@ -532,6 +538,69 @@ app.put('/api/todos/:id', async (req, res) => {
                 updatedAt: Date.now(),
             };
             await updateTodo(updated);
+
+            // ── Sync-back to PERT project ──
+            // If this todo is linked to a PERT project and duration/dueDate changed,
+            // update the PERT project's task estimates accordingly.
+            if (updated.pertProjectId && updated.pertTaskId) {
+                const durationChanged = req.body.durationDays !== undefined && req.body.durationDays !== existing.durationDays;
+                const dueDateChanged = req.body.dueDate !== undefined && req.body.dueDate !== existing.dueDate;
+                const titleChanged = req.body.title !== undefined && req.body.title !== existing.title;
+
+                if (durationChanged || dueDateChanged || titleChanged) {
+                    try {
+                        const projResult = await pool.query('SELECT * FROM projects WHERE id = $1', [updated.pertProjectId]);
+                        if (projResult.rows.length > 0) {
+                            const project = rowToProject(projResult.rows[0]);
+                            const tasks = project.tasks as any[];
+                            const taskIdx = tasks.findIndex((t: any) => t.id === updated.pertTaskId);
+
+                            if (taskIdx >= 0) {
+                                const pertTask = tasks[taskIdx];
+
+                                // Sync title
+                                if (titleChanged) {
+                                    pertTask.name = updated.title;
+                                }
+
+                                // Sync duration: if durationDays changed directly, use it
+                                // If dueDate changed, compute new duration from scheduledDate/dueDate delta
+                                let newLikely = pertTask.likely;
+                                if (durationChanged && updated.durationDays) {
+                                    newLikely = updated.durationDays;
+                                } else if (dueDateChanged && updated.dueDate && updated.scheduledDate) {
+                                    const start = new Date(updated.scheduledDate + 'T00:00:00');
+                                    const end = new Date(updated.dueDate + 'T00:00:00');
+                                    const diffDays = Math.round((end.getTime() - start.getTime()) / (86400000));
+                                    if (diffDays >= 1) {
+                                        newLikely = diffDays;
+                                    }
+                                }
+
+                                if (newLikely !== pertTask.likely) {
+                                    // Recalculate optimistic/pessimistic from the likely estimate
+                                    // Use ±25% as default uncertainty range
+                                    const range = 0.25;
+                                    pertTask.likely = newLikely;
+                                    pertTask.optimistic = Math.max(1, Math.round(newLikely * (1 - range)));
+                                    pertTask.pessimistic = Math.round(newLikely * (1 + range));
+                                }
+
+                                tasks[taskIdx] = pertTask;
+                                await pool.query(
+                                    'UPDATE projects SET tasks = $1, updated_at = $2 WHERE id = $3',
+                                    [JSON.stringify(tasks), Date.now(), updated.pertProjectId]
+                                );
+                                console.log(`🔄 Synced todo → PERT: task "${pertTask.name}" in project ${updated.pertProjectId}`);
+                            }
+                        }
+                    } catch (syncErr) {
+                        // Don't fail the todo update if sync fails
+                        console.error('PERT sync-back failed (non-fatal):', syncErr);
+                    }
+                }
+            }
+
             res.json(updated);
         } else {
             const todo: TodoTask = {
@@ -611,7 +680,7 @@ app.post('/api/todos/:id/complete', async (req, res) => {
 });
 
 // ──────────────────────────────────────
-// Export PERT Project → Todos
+// PERT Project ↔ Todos Linking
 // ──────────────────────────────────────
 
 interface PertTaskForExport {
@@ -626,7 +695,8 @@ interface PertTaskForExport {
     duration?: number;
 }
 
-app.post('/api/projects/:id/export-todos', async (req, res) => {
+// POST /api/projects/:id/link-todos — create or update linked todos (upsert)
+app.post('/api/projects/:id/link-todos', async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM projects WHERE id = $1', [req.params.id]);
         if (result.rows.length === 0) {
@@ -639,7 +709,10 @@ app.post('/api/projects/:id/export-todos', async (req, res) => {
         const pertTasks = (req.body.tasks || project.tasks) as PertTaskForExport[];
         const projectName = project.name;
         const baseDate = startDate ? new Date(startDate + 'T00:00:00') : new Date();
-        const createdTodos: TodoTask[] = [];
+
+        let created = 0;
+        let updated = 0;
+        const linkedTodos: TodoTask[] = [];
 
         for (const task of pertTasks) {
             const expectedDuration = (task.optimistic + 4 * task.likely + task.pessimistic) / 6;
@@ -653,31 +726,97 @@ app.post('/api/projects/:id/export-todos', async (req, res) => {
             taskEnd.setDate(taskEnd.getDate() + Math.round(earlyFinish));
 
             const now = Date.now();
-            const todo: TodoTask = {
-                id: generateId(),
-                title: task.name,
-                description: `PERT task from project "${projectName}" — Duration: ${Math.round(expectedDuration)} days`,
-                completed: false,
-                scheduledDate: taskStart.toISOString().split('T')[0],
-                dueDate: taskEnd.toISOString().split('T')[0],
-                durationDays: Math.round(expectedDuration),
-                priority: 'none',
-                labels: ['pert-export'],
-                section: 'work',
-                pertProjectId: project.id,
-                pertTaskId: task.id,
-                pertProjectName: projectName,
-                createdAt: now,
-                updatedAt: now,
-            };
-            await insertTodo(todo);
-            createdTodos.push(todo);
+
+            // Check if a linked todo already exists for this PERT task
+            const existingResult = await pool.query(
+                'SELECT * FROM todos WHERE pert_project_id = $1 AND pert_task_id = $2',
+                [project.id, task.id]
+            );
+
+            if (existingResult.rows.length > 0) {
+                // Update existing linked todo
+                const existing = rowToTodo(existingResult.rows[0]);
+                const updatedTodo: TodoTask = {
+                    ...existing,
+                    title: task.name,
+                    description: `PERT task from project "${projectName}" — Duration: ${Math.round(expectedDuration)} days`,
+                    scheduledDate: taskStart.toISOString().split('T')[0],
+                    dueDate: taskEnd.toISOString().split('T')[0],
+                    durationDays: Math.round(expectedDuration),
+                    pertProjectName: projectName,
+                    updatedAt: now,
+                };
+                await updateTodo(updatedTodo);
+                linkedTodos.push(updatedTodo);
+                updated++;
+            } else {
+                // Create new linked todo
+                const todo: TodoTask = {
+                    id: generateId(),
+                    title: task.name,
+                    description: `PERT task from project "${projectName}" — Duration: ${Math.round(expectedDuration)} days`,
+                    completed: false,
+                    scheduledDate: taskStart.toISOString().split('T')[0],
+                    dueDate: taskEnd.toISOString().split('T')[0],
+                    durationDays: Math.round(expectedDuration),
+                    priority: 'none',
+                    labels: ['pert-linked'],
+                    section: 'work',
+                    pertProjectId: project.id,
+                    pertTaskId: task.id,
+                    pertProjectName: projectName,
+                    createdAt: now,
+                    updatedAt: now,
+                };
+                await insertTodo(todo);
+                linkedTodos.push(todo);
+                created++;
+            }
         }
 
-        res.status(201).json({ exported: createdTodos.length, todos: createdTodos });
+        // Mark the project as linked
+        await pool.query(
+            'UPDATE projects SET linked = true, updated_at = $1 WHERE id = $2',
+            [Date.now(), project.id]
+        );
+
+        res.status(201).json({ created, updated, total: linkedTodos.length, todos: linkedTodos });
     } catch (err) {
-        console.error('Error exporting todos:', err);
-        res.status(500).json({ error: 'Failed to export todos' });
+        console.error('Error linking todos:', err);
+        res.status(500).json({ error: 'Failed to link todos' });
+    }
+});
+
+// GET /api/projects/:id/linked-todos — get all todos linked to a project
+app.get('/api/projects/:id/linked-todos', async (req, res) => {
+    try {
+        const result = await pool.query(
+            'SELECT * FROM todos WHERE pert_project_id = $1 ORDER BY scheduled_date ASC',
+            [req.params.id]
+        );
+        res.json(result.rows.map(rowToTodo));
+    } catch (err) {
+        console.error('Error fetching linked todos:', err);
+        res.status(500).json({ error: 'Failed to fetch linked todos' });
+    }
+});
+
+// DELETE /api/projects/:id/linked-todos — unlink all todos from a project
+app.delete('/api/projects/:id/linked-todos', async (req, res) => {
+    try {
+        // Remove PERT link fields but keep the todos
+        await pool.query(
+            `UPDATE todos SET pert_project_id = NULL, pert_task_id = NULL, pert_project_name = NULL, updated_at = $1 WHERE pert_project_id = $2`,
+            [Date.now(), req.params.id]
+        );
+        await pool.query(
+            'UPDATE projects SET linked = false, updated_at = $1 WHERE id = $2',
+            [Date.now(), req.params.id]
+        );
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Error unlinking todos:', err);
+        res.status(500).json({ error: 'Failed to unlink todos' });
     }
 });
 

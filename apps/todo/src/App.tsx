@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { TodoTask } from '@pert-suite/shared';
 import { apiGetTodos, apiGetTodayTodos, apiGetUpcomingTodos, apiGetSections, apiCreateTodo, apiCompleteTodo, apiDeleteTodo, apiUpdateTodo, apiAnalyzeTodos, mockAnalyzeTodos, getCachedTodos, getCachedAllTodos, getCachedSections } from './services/todoApi';
-import { Sun, Inbox, Calendar, ChevronRight, ChevronDown, Plus, Check, Trash2, RotateCcw, Flag, Clock, Loader, Tag, X, Settings, Sparkles, Send, HelpCircle, Edit2, Menu } from 'lucide-react';
+import { Sun, Inbox, Calendar, ChevronRight, ChevronDown, Plus, Check, Trash2, RotateCcw, Flag, Clock, Loader, Tag, X, Settings, Sparkles, Send, HelpCircle, Edit2, Menu, BarChart3 } from 'lucide-react';
+import PertView from './components/pert/PertView';
 
-type View = 'today' | 'inbox' | 'upcoming' | 'all';
+type View = 'today' | 'inbox' | 'upcoming' | 'all' | 'pert';
 
 /* ─── Helpers ─── */
 
@@ -28,6 +29,32 @@ function getPriorityLabel(p: string): string {
     if (p === 'p2') return '🟡 P2';
     if (p === 'p3') return '🔵 P3';
     return 'No priority';
+}
+
+/* ─── Task Sorting Comparator ─── */
+
+function sortTasks(a: TodoTask, b: TodoTask): number {
+    // 1. Priority: p1 > p2 > p3 > none
+    const priorityOrder: Record<string, number> = { p1: 0, p2: 1, p3: 2, none: 3 };
+    const pa = priorityOrder[a.priority] ?? 3;
+    const pb = priorityOrder[b.priority] ?? 3;
+    if (pa !== pb) return pa - pb;
+
+    // 2. Due date: earliest first, no-date tasks last
+    const da = a.dueDate || '';
+    const db = b.dueDate || '';
+    if (da && !db) return -1;
+    if (!da && db) return 1;
+    if (da && db && da !== db) return da < db ? -1 : 1;
+
+    // 3. Category/section: work > personal > everything else
+    const sectionOrder: Record<string, number> = { work: 0, personal: 1 };
+    const sa = sectionOrder[a.section] ?? 2;
+    const sb = sectionOrder[b.section] ?? 2;
+    if (sa !== sb) return sa - sb;
+
+    // 4. Alphabetical by title
+    return a.title.localeCompare(b.title, undefined, { sensitivity: 'base' });
 }
 
 /* ─── Auto-Categorization Heuristic ─── */
@@ -257,7 +284,7 @@ function App() {
     const [llmModel, setLlmModel] = useState(() => localStorage.getItem('todo_llm_model') || 'gpt-4o');
 
     // Theme
-    const [theme, setTheme] = useState(() => localStorage.getItem('pert_suite_theme') || 'midnight');
+    const [theme, setTheme] = useState(() => localStorage.getItem('pert_suite_theme') || 'soft-light');
 
     // Hotkey cheat sheet
     const [showHotkeys, setShowHotkeys] = useState(false);
@@ -578,15 +605,15 @@ function App() {
     const today = getToday();
     const overdueTodos = activeTodos.filter(t => t.dueDate && t.dueDate < today);
 
-    const recurring = activeTodos.filter(t => t.recurrence);
-    const pertLinked = activeTodos.filter(t => !t.recurrence && t.pertProjectId);
-    const regular = activeTodos.filter(t => !t.recurrence && !t.pertProjectId);
+    const pertLinked = activeTodos.filter(t => t.pertProjectId);
+    const regular = activeTodos.filter(t => !t.pertProjectId);
 
     const viewTitle = {
         today: 'Today',
         inbox: 'Inbox',
         upcoming: 'Upcoming',
         all: 'All Tasks',
+        pert: 'PERT Chart',
     }[view];
 
     const viewIcon = {
@@ -594,6 +621,7 @@ function App() {
         inbox: <Inbox size={22} color="var(--accent-primary)" />,
         upcoming: <Calendar size={22} color="var(--accent-success)" />,
         all: <ChevronRight size={22} color="var(--text-secondary)" />,
+        pert: <BarChart3 size={22} color="var(--accent-primary)" />,
     }[view];
 
     return (
@@ -702,6 +730,31 @@ function App() {
                             );
                         })}
                     </div>
+
+                    {/* PERT Chart */}
+                    <div style={{ padding: '0 12px', marginTop: '16px' }}>
+                        <button
+                            onClick={() => { setView('pert'); if (isMobile) setSidebarOpen(false); }}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '12px',
+                                padding: '10px 12px',
+                                borderRadius: '10px',
+                                fontSize: '14px',
+                                fontWeight: view === 'pert' ? 600 : 400,
+                                color: view === 'pert' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                                background: view === 'pert' ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
+                                width: '100%',
+                                textAlign: 'left',
+                                transition: 'var(--transition-fast)',
+                                border: view === 'pert' ? '1px solid rgba(99, 102, 241, 0.2)' : '1px solid transparent',
+                            }}
+                        >
+                            <BarChart3 size={18} />
+                            <span>PERT Chart</span>
+                        </button>
+                    </div>
                 </div>
 
                 {/* Keyboard Shortcuts Hint */}
@@ -713,122 +766,110 @@ function App() {
             </nav>
 
             {/* ══════════ Main Content ══════════ */}
-            <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                {/* Header */}
-                <header style={{
-                    height: 'var(--header-height)',
-                    borderBottom: '1px solid var(--border-color)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: isMobile ? '0 16px' : '0 32px',
-                    flexShrink: 0,
-                }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        {isMobile && (
-                            <button
-                                onClick={() => setSidebarOpen(true)}
-                                style={{
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    padding: '6px', borderRadius: '6px',
-                                    background: 'rgba(255,255,255,0.06)',
-                                    marginRight: '4px',
-                                }}
-                            >
-                                <Menu size={20} />
-                            </button>
-                        )}
-                        {viewIcon}
-                        <h2 style={{ fontSize: '20px', fontWeight: 600 }}>{viewTitle}</h2>
-                        {view === 'today' && (
-                            <span style={{ fontSize: '13px', color: 'var(--text-muted)', marginLeft: '4px' }}>
-                                {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-                            </span>
-                        )}
-                    </div>
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                            {activeTodos.length} task{activeTodos.length !== 1 ? 's' : ''}
-                        </span>
-                        {overdueTodos.length > 0 && (
-                            <button
-                                onClick={handleRescheduleOverdue}
-                                title={`Reschedule ${overdueTodos.length} overdue task${overdueTodos.length !== 1 ? 's' : ''} to today`}
-                                style={{
-                                    display: 'flex', alignItems: 'center', gap: '5px',
-                                    padding: '5px 12px', borderRadius: '8px', fontSize: '12px',
-                                    background: 'var(--accent-critical-soft, rgba(239, 68, 68, 0.12))',
-                                    color: 'var(--accent-critical, #ef4444)',
-                                    border: '1px solid rgba(239, 68, 68, 0.25)',
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                    transition: 'var(--transition-fast)',
-                                    whiteSpace: 'nowrap',
-                                }}
-                            >
-                                ⏰ Reschedule {overdueTodos.length} to today
-                            </button>
-                        )}
-                        <button
-                            onClick={handleAdvisorOpen}
-                            title="Day Advisor"
-                            style={{
-                                display: 'flex', alignItems: 'center', gap: '6px',
-                                padding: '6px 14px', borderRadius: '8px', fontSize: '13px',
-                                background: chatOpen ? 'var(--accent-primary)' : 'rgba(255,255,255,0.06)',
-                                color: chatOpen ? 'white' : 'var(--text-secondary)',
-                                border: '1px solid var(--border-color)',
-                                transition: 'var(--transition-fast)',
-                                cursor: 'pointer',
-                            }}
-                        >
-                            <Sparkles size={14} /> Advisor
-                        </button>
-                        <button
-                            onClick={() => setSettingsOpen(true)}
-                            title="Settings"
-                            style={{
-                                padding: '6px', borderRadius: '8px', color: 'var(--text-muted)',
-                                background: 'transparent', cursor: 'pointer',
-                            }}
-                        >
-                            <Settings size={18} />
-                        </button>
-                    </div>
-                </header>
-
-                {/* Task List */}
-                <div style={{ flex: 1, overflowY: 'auto', padding: '24px 32px' }}>
-                    {loading ? (
-                        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px', color: 'var(--text-muted)' }}>
-                            <Loader size={24} style={{ animation: 'spin 1s linear infinite' }} />
-                            <span style={{ marginLeft: '12px' }}>Loading...</span>
-                        </div>
-                    ) : (
-                        <>
-                            {/* Recurring section — Today only */}
-                            {view === 'today' && recurring.length > 0 && (
-                                <TaskGroup title="🔁 Daily" tasks={recurring} onComplete={handleComplete} onDelete={handleDelete} onCyclePriority={handleCyclePriority} onAddSubtask={handleAddSubtask} allTasks={allTodos} showDate={false} onTaskClick={setSelectedTaskId} />
+            {view === 'pert' ? (
+                <PertView />
+            ) : (
+                <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                    {/* Header */}
+                    <header style={{
+                        height: 'var(--header-height)',
+                        borderBottom: '1px solid var(--border-color)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: isMobile ? '0 16px' : '0 32px',
+                        flexShrink: 0,
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            {isMobile && (
+                                <button
+                                    onClick={() => setSidebarOpen(true)}
+                                    style={{
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        padding: '6px', borderRadius: '6px',
+                                        background: 'rgba(255,255,255,0.06)',
+                                        marginRight: '4px',
+                                    }}
+                                >
+                                    <Menu size={20} />
+                                </button>
                             )}
+                            {viewIcon}
+                            <h2 style={{ fontSize: '20px', fontWeight: 600 }}>{viewTitle}</h2>
+                            {view === 'today' && (
+                                <span style={{ fontSize: '13px', color: 'var(--text-muted)', marginLeft: '4px' }}>
+                                    {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                                </span>
+                            )}
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                                {activeTodos.length} task{activeTodos.length !== 1 ? 's' : ''}
+                            </span>
+                            {overdueTodos.length > 0 && (
+                                <button
+                                    onClick={handleRescheduleOverdue}
+                                    title={`Reschedule ${overdueTodos.length} overdue task${overdueTodos.length !== 1 ? 's' : ''} to today`}
+                                    style={{
+                                        display: 'flex', alignItems: 'center', gap: '5px',
+                                        padding: '5px 12px', borderRadius: '8px', fontSize: '12px',
+                                        background: 'var(--accent-critical-soft, rgba(239, 68, 68, 0.12))',
+                                        color: 'var(--accent-critical, #ef4444)',
+                                        border: '1px solid rgba(239, 68, 68, 0.25)',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        transition: 'var(--transition-fast)',
+                                        whiteSpace: 'nowrap',
+                                    }}
+                                >
+                                    ⏰ Reschedule {overdueTodos.length} to today
+                                </button>
+                            )}
+                            <button
+                                onClick={handleAdvisorOpen}
+                                title="Day Advisor"
+                                style={{
+                                    display: 'flex', alignItems: 'center', gap: '6px',
+                                    padding: '6px 14px', borderRadius: '8px', fontSize: '13px',
+                                    background: chatOpen ? 'var(--accent-primary)' : 'rgba(255,255,255,0.06)',
+                                    color: chatOpen ? 'white' : 'var(--text-secondary)',
+                                    border: '1px solid var(--border-color)',
+                                    transition: 'var(--transition-fast)',
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                <Sparkles size={14} /> Advisor
+                            </button>
+                            <button
+                                onClick={() => setSettingsOpen(true)}
+                                title="Settings"
+                                style={{
+                                    padding: '6px', borderRadius: '8px', color: 'var(--text-muted)',
+                                    background: 'transparent', cursor: 'pointer',
+                                }}
+                            >
+                                <Settings size={18} />
+                            </button>
+                        </div>
+                    </header>
 
-                            {/* Regular tasks (non-project, non-recurring) — shown BEFORE project tasks */}
-                            {(view === 'today' || view === 'inbox' || view === 'upcoming') ? (
-                                <>
-                                    <TaskGroup
-                                        title={view === 'today' ? (recurring.length > 0 || pertLinked.length > 0 ? '✏️ Tasks' : '') : view === 'upcoming' ? '📅 Upcoming' : ''}
-                                        tasks={regular}
-                                        onComplete={handleComplete}
-                                        onDelete={handleDelete}
-                                        onCyclePriority={handleCyclePriority}
-                                        onAddSubtask={handleAddSubtask}
-                                        allTasks={allTodos}
-                                        showDate={view !== 'today'}
-                                        onTaskClick={setSelectedTaskId}
-                                    />
-                                    {pertLinked.length > 0 && (
+                    {/* Task List */}
+                    <div style={{ flex: 1, overflowY: 'auto', padding: '24px 32px' }}>
+                        {loading ? (
+                            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px', color: 'var(--text-muted)' }}>
+                                <Loader size={24} style={{ animation: 'spin 1s linear infinite' }} />
+                                <span style={{ marginLeft: '12px' }}>Loading...</span>
+                            </div>
+                        ) : (
+                            <>
+
+
+                                {/* Regular tasks (non-project) — shown BEFORE project tasks */}
+                                {(view === 'today' || view === 'inbox' || view === 'upcoming') ? (
+                                    <>
                                         <TaskGroup
-                                            title="📋 From Projects"
-                                            tasks={pertLinked}
+                                            title={view === 'today' ? (pertLinked.length > 0 ? '✏️ Tasks' : '') : view === 'upcoming' ? '📅 Upcoming' : ''}
+                                            tasks={regular}
                                             onComplete={handleComplete}
                                             onDelete={handleDelete}
                                             onCyclePriority={handleCyclePriority}
@@ -837,304 +878,317 @@ function App() {
                                             showDate={view !== 'today'}
                                             onTaskClick={setSelectedTaskId}
                                         />
-                                    )}
-                                </>
-                            ) : (
-                                <TaskGroup title="" tasks={activeTodos} onComplete={handleComplete} onDelete={handleDelete} onCyclePriority={handleCyclePriority} onAddSubtask={handleAddSubtask} allTasks={allTodos} showDate onTaskClick={setSelectedTaskId} />
-                            )}
-
-                            {/* Empty state */}
-                            {activeTodos.length === 0 && !loading && (
-                                <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-muted)' }}>
-                                    <div style={{ fontSize: '48px', marginBottom: '16px', opacity: 0.4 }}>
-                                        {view === 'today' ? '☀️' : view === 'inbox' ? '📥' : view === 'upcoming' ? '📅' : '📋'}
-                                    </div>
-                                    <p style={{ fontSize: '16px', marginBottom: '8px' }}>
-                                        {view === 'today' ? 'All clear for today!' : view === 'upcoming' ? 'No upcoming tasks' : 'No tasks here'}
-                                    </p>
-                                    <p style={{ fontSize: '13px' }}>Press <kbd style={{ background: 'rgba(255,255,255,0.1)', padding: '2px 6px', borderRadius: '4px' }}>q</kbd> to add a task</p>
-                                </div>
-                            )}
-
-                            {/* Completed section */}
-                            {completedTodos.length > 0 && (
-                                <CompletedSection tasks={completedTodos} onUncomplete={handleUncomplete} onDelete={handleDelete} />
-                            )}
-                        </>
-                    )}
-                </div>
-
-                {/* Quick Add Bar — on mobile: hidden when closed (+ FAB opens it), shown as fixed overlay when open */}
-                {(!isMobile || quickAddOpen) && (
-                    <div style={{
-                        ...(isMobile && quickAddOpen ? {
-                            position: 'fixed' as const,
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
-                            zIndex: 100,
-                            paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))',
-                        } : {}),
-                        borderTop: '1px solid var(--border-color)',
-                        padding: isMobile ? '16px 16px' : '16px 32px',
-                        background: 'var(--bg-panel)',
-                        flexShrink: 0,
-                    }}>
-                        {quickAddOpen ? (
-                            <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                <div style={{ display: 'flex', gap: '8px' }}>
-                                    <input
-                                        ref={titleInputRef}
-                                        autoFocus
-                                        value={newTitle}
-                                        onChange={e => setNewTitle(e.target.value)}
-                                        onKeyDown={e => {
-                                            if (e.key === 'Enter' && newTitle.trim()) handleAddTodo();
-                                            if (e.key === 'Escape') { setQuickAddOpen(false); setNewTitle(''); setSuggestedSection(null); }
-                                        }}
-                                        placeholder="What needs to be done?"
-                                        style={{
-                                            flex: 1,
-                                            background: 'var(--bg-input)',
-                                            border: '1px solid var(--border-color-hover)',
-                                            borderRadius: '8px',
-                                            padding: '10px 14px',
-                                            fontSize: '16px',
-                                            outline: 'none',
-                                        }}
-                                    />
-                                    <button
-                                        onClick={handleAddTodo}
-                                        disabled={!newTitle.trim()}
-                                        style={{
-                                            background: 'var(--accent-primary)',
-                                            color: 'white',
-                                            padding: '10px 20px',
-                                            borderRadius: '8px',
-                                            fontWeight: 500,
-                                            fontSize: '13px',
-                                            opacity: newTitle.trim() ? 1 : 0.5,
-                                            transition: 'var(--transition-fast)',
-                                        }}
-                                    >
-                                        Add
-                                    </button>
-                                    <button
-                                        onClick={() => { setQuickAddOpen(false); setNewTitle(''); setSuggestedSection(null); }}
-                                        style={{ padding: '10px 14px', borderRadius: '8px', color: 'var(--text-muted)', background: 'var(--bg-input)' }}
-                                    >
-                                        Cancel
-                                    </button>
-                                </div>
-
-                                {/* Detected tokens from natural language */}
-                                {(parsedInfo.detectedDate || parsedInfo.detectedPriority || parsedInfo.detectedRecurrence) && (
-                                    <div className="fade-in" style={{
-                                        display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap',
-                                        padding: '6px 12px', borderRadius: '8px',
-                                        background: 'rgba(56, 189, 248, 0.08)',
-                                        border: '1px solid rgba(56, 189, 248, 0.15)',
-                                        fontSize: '12px', color: '#7dd3fc',
-                                    }}>
-                                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Detected:</span>
-                                        {parsedInfo.detectedDate && (
-                                            <span style={{
-                                                display: 'flex', alignItems: 'center', gap: '4px',
-                                                background: 'rgba(56, 189, 248, 0.15)', padding: '2px 8px', borderRadius: '4px',
-                                            }}>
-                                                📅 {parsedInfo.detectedDateLabel}
-                                                <button
-                                                    onClick={() => { setNewDueDate(''); setParsedInfo(p => ({ ...p, detectedDate: null, detectedDateLabel: null })); }}
-                                                    style={{ background: 'none', border: 'none', color: '#7dd3fc', cursor: 'pointer', padding: '0 2px', fontSize: '11px' }}
-                                                >×</button>
-                                            </span>
+                                        {pertLinked.length > 0 && (
+                                            <TaskGroup
+                                                title="📋 From Projects"
+                                                tasks={pertLinked}
+                                                onComplete={handleComplete}
+                                                onDelete={handleDelete}
+                                                onCyclePriority={handleCyclePriority}
+                                                onAddSubtask={handleAddSubtask}
+                                                allTasks={allTodos}
+                                                showDate={view !== 'today'}
+                                                onTaskClick={setSelectedTaskId}
+                                            />
                                         )}
-                                        {parsedInfo.detectedPriority && (
-                                            <span style={{
-                                                display: 'flex', alignItems: 'center', gap: '4px',
-                                                background: 'rgba(56, 189, 248, 0.15)', padding: '2px 8px', borderRadius: '4px',
-                                                color: getPriorityColor(parsedInfo.detectedPriority),
-                                            }}>
-                                                🚩 {parsedInfo.detectedPriority.toUpperCase()}
-                                                <button
-                                                    onClick={() => { setNewPriority('none'); setParsedInfo(p => ({ ...p, detectedPriority: null })); }}
-                                                    style={{ background: 'none', border: 'none', color: '#7dd3fc', cursor: 'pointer', padding: '0 2px', fontSize: '11px' }}
-                                                >×</button>
-                                            </span>
-                                        )}
-                                        {parsedInfo.detectedRecurrence && (
-                                            <span style={{
-                                                display: 'flex', alignItems: 'center', gap: '4px',
-                                                background: 'rgba(34, 197, 94, 0.15)', padding: '2px 8px', borderRadius: '4px',
-                                                color: 'var(--accent-success)',
-                                            }}>
-                                                {parsedInfo.detectedRecurrence.label}
-                                                <button
-                                                    onClick={() => setParsedInfo(p => ({ ...p, detectedRecurrence: null }))}
-                                                    style={{ background: 'none', border: 'none', color: 'var(--accent-success)', cursor: 'pointer', padding: '0 2px', fontSize: '11px' }}
-                                                >×</button>
-                                            </span>
-                                        )}
+                                    </>
+                                ) : (
+                                    <TaskGroup title="" tasks={activeTodos} onComplete={handleComplete} onDelete={handleDelete} onCyclePriority={handleCyclePriority} onAddSubtask={handleAddSubtask} allTasks={allTodos} showDate onTaskClick={setSelectedTaskId} />
+                                )}
+
+                                {/* Empty state */}
+                                {activeTodos.length === 0 && !loading && (
+                                    <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-muted)' }}>
+                                        <div style={{ fontSize: '48px', marginBottom: '16px', opacity: 0.4 }}>
+                                            {view === 'today' ? '☀️' : view === 'inbox' ? '📥' : view === 'upcoming' ? '📅' : '📋'}
+                                        </div>
+                                        <p style={{ fontSize: '16px', marginBottom: '8px' }}>
+                                            {view === 'today' ? 'All clear for today!' : view === 'upcoming' ? 'No upcoming tasks' : 'No tasks here'}
+                                        </p>
+                                        <p style={{ fontSize: '13px' }}>Press <kbd style={{ background: 'rgba(255,255,255,0.1)', padding: '2px 6px', borderRadius: '4px' }}>q</kbd> to add a task</p>
                                     </div>
                                 )}
 
-                                {/* Auto-categorization suggestion */}
-                                {suggestedSection && (
-                                    <div className="fade-in" style={{
-                                        display: 'flex', alignItems: 'center', gap: '8px',
-                                        padding: '6px 12px', borderRadius: '8px',
-                                        background: 'rgba(139, 92, 246, 0.1)',
-                                        border: '1px solid rgba(139, 92, 246, 0.2)',
-                                        fontSize: '12px', color: '#a78bfa',
-                                    }}>
-                                        <Sparkles size={12} />
-                                        Looks like: {suggestedSection === 'personal' ? '🏠 Personal' : '💼 Work'}
-                                        <button
-                                            onClick={() => { setNewSection(suggestedSection); setSuggestedSection(null); }}
-                                            style={{
-                                                padding: '2px 8px', borderRadius: '4px', fontSize: '11px',
-                                                background: 'rgba(139, 92, 246, 0.2)', color: '#a78bfa',
-                                                cursor: 'pointer', border: 'none',
-                                            }}
-                                        >
-                                            Accept
-                                        </button>
-                                        <button
-                                            onClick={() => setSuggestedSection(null)}
-                                            style={{
-                                                padding: '2px 8px', borderRadius: '4px', fontSize: '11px',
-                                                background: 'transparent', color: 'var(--text-faint)',
-                                                cursor: 'pointer', border: 'none',
-                                            }}
-                                        >
-                                            Dismiss
-                                        </button>
-                                    </div>
+                                {/* Completed section */}
+                                {completedTodos.length > 0 && (
+                                    <CompletedSection tasks={completedTodos} onUncomplete={handleUncomplete} onDelete={handleDelete} />
                                 )}
-
-                                {/* Meta row */}
-                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                                    <select
-                                        value={newSection}
-                                        onChange={e => setNewSection(e.target.value)}
-                                        style={{
-                                            background: 'var(--bg-input)',
-                                            border: '1px solid var(--border-color)',
-                                            borderRadius: '6px',
-                                            padding: '6px 10px',
-                                            fontSize: '12px',
-                                            color: 'var(--text-secondary)',
-                                            outline: 'none',
-                                        }}
-                                    >
-                                        <option value="inbox">📥 Inbox</option>
-                                        <option value="personal">🏠 Personal</option>
-                                        <option value="work">💼 Work</option>
-                                    </select>
-                                    {/* Priority with hotkey hints */}
-                                    <div style={{ display: 'flex', gap: '4px' }}>
-                                        {(['p1', 'p2', 'p3', 'none'] as const).map((p, i) => (
-                                            <button
-                                                key={p}
-                                                onClick={() => setNewPriority(p)}
-                                                title={`${getPriorityLabel(p)} (⌘${i + 1})`}
-                                                style={{
-                                                    padding: '4px 8px', borderRadius: '6px', fontSize: '12px',
-                                                    background: newPriority === p ? 'rgba(255,255,255,0.12)' : 'var(--bg-input)',
-                                                    border: newPriority === p ? `1px solid ${getPriorityColor(p)}` : '1px solid var(--border-color)',
-                                                    color: getPriorityColor(p),
-                                                    cursor: 'pointer',
-                                                    display: 'flex', alignItems: 'center', gap: '4px',
-                                                }}
-                                            >
-                                                <Flag size={10} />
-                                                <span style={{ fontSize: '10px', opacity: 0.6 }}>{i + 1}</span>
-                                            </button>
-                                        ))}
-                                    </div>
-                                    <input
-                                        type="date"
-                                        value={newDueDate}
-                                        onChange={e => setNewDueDate(e.target.value)}
-                                        style={{
-                                            background: 'var(--bg-input)',
-                                            border: '1px solid var(--border-color)',
-                                            borderRadius: '6px',
-                                            padding: '6px 10px',
-                                            fontSize: '12px',
-                                            color: 'var(--text-secondary)',
-                                            outline: 'none',
-                                        }}
-                                    />
-                                    <select
-                                        value={newRecurrence}
-                                        onChange={e => setNewRecurrence(e.target.value)}
-                                        style={{
-                                            background: 'var(--bg-input)',
-                                            border: '1px solid var(--border-color)',
-                                            borderRadius: '6px',
-                                            padding: '6px 10px',
-                                            fontSize: '12px',
-                                            color: newRecurrence ? 'var(--accent-success)' : 'var(--text-secondary)',
-                                            outline: 'none',
-                                        }}
-                                    >
-                                        <option value="">No repeat</option>
-                                        <option value="daily">🔁 Daily</option>
-                                        <option value="weekdays">📅 Weekdays</option>
-                                        <option value="weekly">📆 Weekly</option>
-                                        <option value="monthly">🗓️ Monthly</option>
-                                        <option value="quarterly">📊 Quarterly</option>
-                                        <optgroup label="Every specific day">
-                                            <option value="specific-day:1">Every Monday</option>
-                                            <option value="specific-day:2">Every Tuesday</option>
-                                            <option value="specific-day:3">Every Wednesday</option>
-                                            <option value="specific-day:4">Every Thursday</option>
-                                            <option value="specific-day:5">Every Friday</option>
-                                            <option value="specific-day:6">Every Saturday</option>
-                                            <option value="specific-day:0">Every Sunday</option>
-                                        </optgroup>
-                                    </select>
-                                </div>
-                            </div>
-                        ) : (
-                            <button
-                                onClick={() => { setQuickAddOpen(true); setTimeout(() => titleInputRef.current?.focus(), 50); }}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '10px',
-                                    width: '100%',
-                                    padding: '10px 14px',
-                                    borderRadius: '8px',
-                                    color: 'var(--text-muted)',
-                                    fontSize: '14px',
-                                    transition: 'var(--transition-fast)',
-                                    border: '1px dashed var(--border-color)',
-                                }}
-                            >
-                                <Plus size={18} color="var(--accent-primary)" />
-                                Add task
-                                <span style={{ marginLeft: 'auto', fontSize: '11px', opacity: 0.5 }}>
-                                    <kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: '3px' }}>q</kbd>
-                                </span>
-                            </button>
+                            </>
                         )}
                     </div>
-                )}
-                {/* Backdrop overlay when quick-add is open on mobile */}
-                {isMobile && quickAddOpen && (
-                    <div
-                        onClick={() => { setQuickAddOpen(false); setNewTitle(''); setSuggestedSection(null); }}
-                        style={{
-                            position: 'fixed',
-                            inset: 0,
-                            background: 'rgba(0,0,0,0.5)',
-                            zIndex: 99,
-                        }}
-                    />
-                )}
-            </main>
+
+                    {/* Quick Add Bar — on mobile: hidden when closed (+ FAB opens it), shown as fixed overlay when open */}
+                    {(!isMobile || quickAddOpen) && (
+                        <div style={{
+                            ...(isMobile && quickAddOpen ? {
+                                position: 'fixed' as const,
+                                bottom: 0,
+                                left: 0,
+                                right: 0,
+                                zIndex: 100,
+                                paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))',
+                            } : {}),
+                            borderTop: '1px solid var(--border-color)',
+                            padding: isMobile ? '16px 16px' : '16px 32px',
+                            background: 'var(--bg-panel)',
+                            flexShrink: 0,
+                        }}>
+                            {quickAddOpen ? (
+                                <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <input
+                                            ref={titleInputRef}
+                                            autoFocus
+                                            value={newTitle}
+                                            onChange={e => setNewTitle(e.target.value)}
+                                            onKeyDown={e => {
+                                                if (e.key === 'Enter' && newTitle.trim()) handleAddTodo();
+                                                if (e.key === 'Escape') { setQuickAddOpen(false); setNewTitle(''); setSuggestedSection(null); }
+                                            }}
+                                            placeholder="What needs to be done?"
+                                            style={{
+                                                flex: 1,
+                                                background: 'var(--bg-input)',
+                                                border: '1px solid var(--border-color-hover)',
+                                                borderRadius: '8px',
+                                                padding: '10px 14px',
+                                                fontSize: '16px',
+                                                outline: 'none',
+                                            }}
+                                        />
+                                        <button
+                                            onClick={handleAddTodo}
+                                            disabled={!newTitle.trim()}
+                                            style={{
+                                                background: 'var(--accent-primary)',
+                                                color: 'white',
+                                                padding: '10px 20px',
+                                                borderRadius: '8px',
+                                                fontWeight: 500,
+                                                fontSize: '13px',
+                                                opacity: newTitle.trim() ? 1 : 0.5,
+                                                transition: 'var(--transition-fast)',
+                                            }}
+                                        >
+                                            Add
+                                        </button>
+                                        <button
+                                            onClick={() => { setQuickAddOpen(false); setNewTitle(''); setSuggestedSection(null); }}
+                                            style={{ padding: '10px 14px', borderRadius: '8px', color: 'var(--text-muted)', background: 'var(--bg-input)' }}
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
+
+                                    {/* Detected tokens from natural language */}
+                                    {(parsedInfo.detectedDate || parsedInfo.detectedPriority || parsedInfo.detectedRecurrence) && (
+                                        <div className="fade-in" style={{
+                                            display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap',
+                                            padding: '6px 12px', borderRadius: '8px',
+                                            background: 'rgba(56, 189, 248, 0.08)',
+                                            border: '1px solid rgba(56, 189, 248, 0.15)',
+                                            fontSize: '12px', color: '#7dd3fc',
+                                        }}>
+                                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Detected:</span>
+                                            {parsedInfo.detectedDate && (
+                                                <span style={{
+                                                    display: 'flex', alignItems: 'center', gap: '4px',
+                                                    background: 'rgba(56, 189, 248, 0.15)', padding: '2px 8px', borderRadius: '4px',
+                                                }}>
+                                                    📅 {parsedInfo.detectedDateLabel}
+                                                    <button
+                                                        onClick={() => { setNewDueDate(''); setParsedInfo(p => ({ ...p, detectedDate: null, detectedDateLabel: null })); }}
+                                                        style={{ background: 'none', border: 'none', color: '#7dd3fc', cursor: 'pointer', padding: '0 2px', fontSize: '11px' }}
+                                                    >×</button>
+                                                </span>
+                                            )}
+                                            {parsedInfo.detectedPriority && (
+                                                <span style={{
+                                                    display: 'flex', alignItems: 'center', gap: '4px',
+                                                    background: 'rgba(56, 189, 248, 0.15)', padding: '2px 8px', borderRadius: '4px',
+                                                    color: getPriorityColor(parsedInfo.detectedPriority),
+                                                }}>
+                                                    🚩 {parsedInfo.detectedPriority.toUpperCase()}
+                                                    <button
+                                                        onClick={() => { setNewPriority('none'); setParsedInfo(p => ({ ...p, detectedPriority: null })); }}
+                                                        style={{ background: 'none', border: 'none', color: '#7dd3fc', cursor: 'pointer', padding: '0 2px', fontSize: '11px' }}
+                                                    >×</button>
+                                                </span>
+                                            )}
+                                            {parsedInfo.detectedRecurrence && (
+                                                <span style={{
+                                                    display: 'flex', alignItems: 'center', gap: '4px',
+                                                    background: 'rgba(34, 197, 94, 0.15)', padding: '2px 8px', borderRadius: '4px',
+                                                    color: 'var(--accent-success)',
+                                                }}>
+                                                    {parsedInfo.detectedRecurrence.label}
+                                                    <button
+                                                        onClick={() => setParsedInfo(p => ({ ...p, detectedRecurrence: null }))}
+                                                        style={{ background: 'none', border: 'none', color: 'var(--accent-success)', cursor: 'pointer', padding: '0 2px', fontSize: '11px' }}
+                                                    >×</button>
+                                                </span>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Auto-categorization suggestion */}
+                                    {suggestedSection && (
+                                        <div className="fade-in" style={{
+                                            display: 'flex', alignItems: 'center', gap: '8px',
+                                            padding: '6px 12px', borderRadius: '8px',
+                                            background: 'rgba(139, 92, 246, 0.1)',
+                                            border: '1px solid rgba(139, 92, 246, 0.2)',
+                                            fontSize: '12px', color: '#a78bfa',
+                                        }}>
+                                            <Sparkles size={12} />
+                                            Looks like: {suggestedSection === 'personal' ? '🏠 Personal' : '💼 Work'}
+                                            <button
+                                                onClick={() => { setNewSection(suggestedSection); setSuggestedSection(null); }}
+                                                style={{
+                                                    padding: '2px 8px', borderRadius: '4px', fontSize: '11px',
+                                                    background: 'rgba(139, 92, 246, 0.2)', color: '#a78bfa',
+                                                    cursor: 'pointer', border: 'none',
+                                                }}
+                                            >
+                                                Accept
+                                            </button>
+                                            <button
+                                                onClick={() => setSuggestedSection(null)}
+                                                style={{
+                                                    padding: '2px 8px', borderRadius: '4px', fontSize: '11px',
+                                                    background: 'transparent', color: 'var(--text-faint)',
+                                                    cursor: 'pointer', border: 'none',
+                                                }}
+                                            >
+                                                Dismiss
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {/* Meta row */}
+                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                        <select
+                                            value={newSection}
+                                            onChange={e => setNewSection(e.target.value)}
+                                            style={{
+                                                background: 'var(--bg-input)',
+                                                border: '1px solid var(--border-color)',
+                                                borderRadius: '6px',
+                                                padding: '6px 10px',
+                                                fontSize: '12px',
+                                                color: 'var(--text-secondary)',
+                                                outline: 'none',
+                                            }}
+                                        >
+                                            <option value="inbox">📥 Inbox</option>
+                                            <option value="personal">🏠 Personal</option>
+                                            <option value="work">💼 Work</option>
+                                        </select>
+                                        {/* Priority with hotkey hints */}
+                                        <div style={{ display: 'flex', gap: '4px' }}>
+                                            {(['p1', 'p2', 'p3', 'none'] as const).map((p, i) => (
+                                                <button
+                                                    key={p}
+                                                    onClick={() => setNewPriority(p)}
+                                                    title={`${getPriorityLabel(p)} (⌘${i + 1})`}
+                                                    style={{
+                                                        padding: '4px 8px', borderRadius: '6px', fontSize: '12px',
+                                                        background: newPriority === p ? 'rgba(255,255,255,0.12)' : 'var(--bg-input)',
+                                                        border: newPriority === p ? `1px solid ${getPriorityColor(p)}` : '1px solid var(--border-color)',
+                                                        color: getPriorityColor(p),
+                                                        cursor: 'pointer',
+                                                        display: 'flex', alignItems: 'center', gap: '4px',
+                                                    }}
+                                                >
+                                                    <Flag size={10} />
+                                                    <span style={{ fontSize: '10px', opacity: 0.6 }}>{i + 1}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <input
+                                            type="date"
+                                            value={newDueDate}
+                                            onChange={e => setNewDueDate(e.target.value)}
+                                            style={{
+                                                background: 'var(--bg-input)',
+                                                border: '1px solid var(--border-color)',
+                                                borderRadius: '6px',
+                                                padding: '6px 10px',
+                                                fontSize: '12px',
+                                                color: 'var(--text-secondary)',
+                                                outline: 'none',
+                                            }}
+                                        />
+                                        <select
+                                            value={newRecurrence}
+                                            onChange={e => setNewRecurrence(e.target.value)}
+                                            style={{
+                                                background: 'var(--bg-input)',
+                                                border: '1px solid var(--border-color)',
+                                                borderRadius: '6px',
+                                                padding: '6px 10px',
+                                                fontSize: '12px',
+                                                color: newRecurrence ? 'var(--accent-success)' : 'var(--text-secondary)',
+                                                outline: 'none',
+                                            }}
+                                        >
+                                            <option value="">No repeat</option>
+                                            <option value="daily">🔁 Daily</option>
+                                            <option value="weekdays">📅 Weekdays</option>
+                                            <option value="weekly">📆 Weekly</option>
+                                            <option value="monthly">🗓️ Monthly</option>
+                                            <option value="quarterly">📊 Quarterly</option>
+                                            <optgroup label="Every specific day">
+                                                <option value="specific-day:1">Every Monday</option>
+                                                <option value="specific-day:2">Every Tuesday</option>
+                                                <option value="specific-day:3">Every Wednesday</option>
+                                                <option value="specific-day:4">Every Thursday</option>
+                                                <option value="specific-day:5">Every Friday</option>
+                                                <option value="specific-day:6">Every Saturday</option>
+                                                <option value="specific-day:0">Every Sunday</option>
+                                            </optgroup>
+                                        </select>
+                                    </div>
+                                </div>
+                            ) : (
+                                <button
+                                    onClick={() => { setQuickAddOpen(true); setTimeout(() => titleInputRef.current?.focus(), 50); }}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '10px',
+                                        width: '100%',
+                                        padding: '10px 14px',
+                                        borderRadius: '8px',
+                                        color: 'var(--text-muted)',
+                                        fontSize: '14px',
+                                        transition: 'var(--transition-fast)',
+                                        border: '1px dashed var(--border-color)',
+                                    }}
+                                >
+                                    <Plus size={18} color="var(--accent-primary)" />
+                                    Add task
+                                    <span style={{ marginLeft: 'auto', fontSize: '11px', opacity: 0.5 }}>
+                                        <kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: '3px' }}>q</kbd>
+                                    </span>
+                                </button>
+                            )}
+                        </div>
+                    )}
+                    {/* Backdrop overlay when quick-add is open on mobile */}
+                    {isMobile && quickAddOpen && (
+                        <div
+                            onClick={() => { setQuickAddOpen(false); setNewTitle(''); setSuggestedSection(null); }}
+                            style={{
+                                position: 'fixed',
+                                inset: 0,
+                                background: 'rgba(0,0,0,0.5)',
+                                zIndex: 99,
+                            }}
+                        />
+                    )}
+                </main>
+            )}
 
             {/* ══════════ Floating Action Buttons ══════════ */}
             {!quickAddOpen && !selectedTaskId && (
@@ -1526,7 +1580,7 @@ function TaskGroup({ title, tasks, onComplete, onDelete, onCyclePriority, onAddS
     }
 
     // Only show top-level tasks (not subtasks) from the filtered set
-    const topLevel = tasks.filter(t => !t.parentId);
+    const topLevel = tasks.filter(t => !t.parentId).sort(sortTasks);
 
     if (topLevel.length === 0 && !title) return null;
 

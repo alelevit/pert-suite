@@ -16,9 +16,15 @@
         "@capacitor/core": "^8.1.0",
         "@capacitor/ios": "^8.1.0",
         "@pert-suite/shared": "*",
+        "@types/dagre": "^0.7.53",
+        "@types/uuid": "^10.0.0",
+        "@xyflow/react": "^12.10.0",
+        "dagre": "^0.8.5",
         "lucide-react": "^0.563.0",
         "react": "^19.2.0",
-        "react-dom": "^19.2.0"
+        "react-dom": "^19.2.0",
+        "reactflow": "^11.11.4",
+        "uuid": "^13.0.0"
     },
     "devDependencies": {
         "@eslint/js": "^9.39.1",

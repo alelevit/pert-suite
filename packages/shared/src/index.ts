@@ -20,6 +20,7 @@ export interface SavedProject {
     description: string;
     tasks: PertTask[];
     startDate?: string;        // ISO date — project start date
+    linked?: boolean;          // Whether this project is linked to Todo tasks
     createdAt: number;
     updatedAt: number;
 }
