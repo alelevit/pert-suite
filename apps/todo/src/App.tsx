@@ -255,6 +255,7 @@ function App() {
     });
     const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
     const [pertRefreshKey, setPertRefreshKey] = useState(0);
+    const [autoLoadProjectId, setAutoLoadProjectId] = useState<string | null>(null);
     const [lastCompleted, setLastCompleted] = useState<{ id: string; todo: TodoTask } | null>(null);
     const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -773,6 +774,8 @@ function App() {
                     allTodos={allTodos}
                     onOpenTodoTask={(todoId) => setSelectedTaskId(todoId)}
                     pertRefreshKey={pertRefreshKey}
+                    autoLoadProjectId={autoLoadProjectId}
+                    onProjectLoaded={() => setAutoLoadProjectId(null)}
                 />
             ) : (
                 <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -1290,6 +1293,11 @@ function App() {
                         }}
                         onSubtaskComplete={handleComplete}
                         onSubtaskDelete={handleDelete}
+                        onGoToPert={(projectId) => {
+                            setAutoLoadProjectId(projectId);
+                            setView('pert');
+                            setSelectedTaskId(null);
+                        }}
                     />
                 );
             })()}
@@ -1915,7 +1923,7 @@ function TaskItem({ task, subtasks, onComplete, onDelete, onCyclePriority, onAdd
 /*              TASK DETAIL PANEL                      */
 /* ═══════════════════════════════════════════════════ */
 
-function TaskDetailPanel({ task, allTodos, sections, onClose, onUpdate, onComplete, onDelete, onAddSubtask, onSubtaskComplete, onSubtaskDelete }: {
+function TaskDetailPanel({ task, allTodos, sections, onClose, onUpdate, onComplete, onDelete, onAddSubtask, onSubtaskComplete, onSubtaskDelete, onGoToPert }: {
     task: TodoTask;
     allTodos: TodoTask[];
     sections: string[];
@@ -1926,6 +1934,7 @@ function TaskDetailPanel({ task, allTodos, sections, onClose, onUpdate, onComple
     onAddSubtask: (title: string) => Promise<void>;
     onSubtaskComplete: (id: string) => void;
     onSubtaskDelete: (id: string) => void;
+    onGoToPert?: (projectId: string) => void;
 }) {
     const [editTitle, setEditTitle] = useState(task.title);
     const [editDescription, setEditDescription] = useState(task.description || '');
@@ -2333,10 +2342,32 @@ function TaskDetailPanel({ task, allTodos, sections, onClose, onUpdate, onComple
                                 Duration: {(task as any).durationDays} days
                             </div>
                         )}
-                        {task.description && (
-                            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px', fontStyle: 'italic' }}>
-                                {task.description}
-                            </div>
+                        {task.pertProjectId && onGoToPert && (
+                            <button
+                                onClick={() => {
+                                    onGoToPert(task.pertProjectId!);
+                                    onClose();
+                                }}
+                                style={{
+                                    marginTop: '8px',
+                                    width: '100%',
+                                    padding: '6px 12px',
+                                    background: 'var(--accent-primary)',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '6px',
+                                    fontSize: '12px',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '6px',
+                                    transition: 'var(--transition-fast)',
+                                }}
+                            >
+                                📊 Go to Chart →
+                            </button>
                         )}
                     </div>
                 )}

@@ -20,9 +20,11 @@ interface PertViewProps {
   allTodos?: TodoTask[];
   onOpenTodoTask?: (todoId: string) => void;
   pertRefreshKey?: number;
+  autoLoadProjectId?: string | null;
+  onProjectLoaded?: () => void;
 }
 
-export default function PertView({ allTodos, onOpenTodoTask, pertRefreshKey }: PertViewProps) {
+export default function PertView({ allTodos, onOpenTodoTask, pertRefreshKey, autoLoadProjectId, onProjectLoaded }: PertViewProps) {
   const [tasks, setTasks] = useState<PertTask[]>([
     { id: '1', name: 'Define Scope', optimistic: 1, likely: 2, pessimistic: 3, dependencies: [] },
     { id: '2', name: 'Market Research', optimistic: 2, likely: 3, pessimistic: 6, dependencies: ['1'] },
@@ -280,6 +282,29 @@ export default function PertView({ allTodos, onOpenTodoTask, pertRefreshKey }: P
       } catch { /* non-fatal */ }
     })();
   }, [pertRefreshKey]);
+
+  // Auto-load a specific project when navigated from "Go to Chart" button
+  useEffect(() => {
+    if (!autoLoadProjectId) return;
+    (async () => {
+      try {
+        const project = await apiLoadProject(autoLoadProjectId);
+        if (project) {
+          setTasks(project.tasks as PertTask[]);
+          setPrompt(project.description || '');
+          setCurrentProjectId(project.id);
+          setCurrentProjectName(project.name);
+          setIsLinked(project.linked || false);
+          if (project.startDate) setProjectStartDate(project.startDate);
+          if (project.linked) {
+            const linkedTodos = await apiGetLinkedTodos(project.id);
+            setLinkedCount(linkedTodos.length);
+          }
+        }
+      } catch { /* non-fatal */ }
+      onProjectLoaded?.();
+    })();
+  }, [autoLoadProjectId]);
 
   const handleQuickSave = async () => {
     if (currentProjectId) {
