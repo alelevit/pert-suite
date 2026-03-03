@@ -826,7 +826,7 @@ app.post('/api/projects/:id/impact', async (req, res) => {
 
         const project = rowToProject(result.rows[0]);
         const tasks = project.tasks as any[];
-        const { pertTaskId, newScheduledDate, newDueDate } = req.body;
+        const { pertTaskId, newScheduledDate, newDueDate, currentScheduledDate, currentDueDate } = req.body;
         const projectStartDate = project.startDate;
 
         if (!pertTaskId) {
@@ -919,8 +919,29 @@ app.post('/api/projects/:id/impact', async (req, res) => {
             return { nodeMap, projectEnd, order };
         }
 
-        // Run CPM with current state
-        const current = runCPM(tasks);
+        // Build "baseline" task list using ORIGINAL dates (before sync-back may have updated them)
+        // This ensures correct comparison even if apiUpdateTodo has already sync-backed
+        const baselineTasks = tasks.map((t: any) => {
+            if (t.id === pertTaskId && (currentScheduledDate !== undefined || currentDueDate !== undefined)) {
+                const baseline = { ...t };
+                const origSched = currentScheduledDate || t.startDate;
+                const origDue = currentDueDate;
+                if (origSched) baseline.startDate = origSched;
+                if (origDue && origSched) {
+                    const start = new Date(origSched + 'T00:00:00');
+                    const end = new Date(origDue + 'T00:00:00');
+                    const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000));
+                    baseline.likely = days;
+                    baseline.optimistic = Math.max(1, Math.round(days * 0.75));
+                    baseline.pessimistic = Math.round(days * 1.25);
+                }
+                return baseline;
+            }
+            return t;
+        });
+
+        // Run CPM with baseline state (original dates)
+        const current = runCPM(baselineTasks);
         if (!current) {
             res.json({ warnings: ['⚠️ Cycle detected in dependency graph'], affectedTasks: [], criticalPath: false, projectEndDelta: 0 });
             return;

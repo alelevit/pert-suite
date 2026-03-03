@@ -236,12 +236,14 @@ export async function apiGetPertImpact(
     projectId: string,
     pertTaskId: string,
     newScheduledDate?: string,
-    newDueDate?: string
+    newDueDate?: string,
+    currentScheduledDate?: string,
+    currentDueDate?: string
 ): Promise<PertImpactResult> {
     const res = await fetch(`${API_BASE}/projects/${projectId}/impact`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pertTaskId, newScheduledDate, newDueDate }),
+        body: JSON.stringify({ pertTaskId, newScheduledDate, newDueDate, currentScheduledDate, currentDueDate }),
     });
     if (!res.ok) throw new Error('Failed to get impact analysis');
     return res.json();

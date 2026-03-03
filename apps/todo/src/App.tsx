@@ -2144,7 +2144,7 @@ function TaskDetailPanel({ task, allTodos, sections, onClose, onUpdate, onComple
                                     warningTimerRef.current = setTimeout(async () => {
                                         setWarningLoading(true);
                                         try {
-                                            const result = await apiGetPertImpact(task.pertProjectId!, task.pertTaskId!, newSched || undefined, newDue || undefined);
+                                            const result = await apiGetPertImpact(task.pertProjectId!, task.pertTaskId!, newSched || undefined, newDue || undefined, task.scheduledDate || undefined, task.dueDate || undefined);
                                             setPertWarnings(result);
                                         } catch { /* ignore */ }
                                         setWarningLoading(false);
@@ -2170,7 +2170,7 @@ function TaskDetailPanel({ task, allTodos, sections, onClose, onUpdate, onComple
                                     warningTimerRef.current = setTimeout(async () => {
                                         setWarningLoading(true);
                                         try {
-                                            const result = await apiGetPertImpact(task.pertProjectId!, task.pertTaskId!, newSched || undefined, newDue || undefined);
+                                            const result = await apiGetPertImpact(task.pertProjectId!, task.pertTaskId!, newSched || undefined, newDue || undefined, task.scheduledDate || undefined, task.dueDate || undefined);
                                             setPertWarnings(result);
                                         } catch { /* ignore */ }
                                         setWarningLoading(false);
