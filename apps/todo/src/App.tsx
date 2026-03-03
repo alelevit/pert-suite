@@ -2037,19 +2037,20 @@ function TaskDetailPanel({ task, allTodos, sections, onClose, onUpdate, onComple
                     <Edit2 size={16} color="var(--accent-primary)" />
                     Task Details
                 </div>
-                <div style={{ display: 'flex', gap: '4px' }}>
+                <div style={{ display: 'flex', gap: '8px' }}>
                     <button
                         onClick={onComplete}
                         title="Complete task"
-                        style={{ padding: '6px', borderRadius: '6px', color: 'var(--accent-success)', background: 'transparent', cursor: 'pointer', border: 'none' }}
+                        style={{ padding: '4px 12px', borderRadius: '6px', color: 'white', background: 'var(--accent-success)', cursor: 'pointer', border: 'none', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}
                     >
-                        <Check size={16} />
+                        <Check size={14} /> Complete
                     </button>
                     <button
                         onClick={onClose}
-                        style={{ padding: '6px', borderRadius: '6px', color: 'var(--text-muted)', cursor: 'pointer', background: 'transparent', border: 'none' }}
+                        title="Save and close"
+                        style={{ padding: '4px 12px', borderRadius: '6px', color: 'var(--text-main)', cursor: 'pointer', background: 'var(--bg-app)', border: '1px solid var(--border-color)', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}
                     >
-                        <X size={18} />
+                        Save
                     </button>
                 </div>
             </div>
