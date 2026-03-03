@@ -926,14 +926,25 @@ app.post('/api/projects/:id/impact', async (req, res) => {
             return;
         }
 
+        // Look up the existing linked todo to get current dates as fallbacks
+        const linkedTodoResult = await pool.query(
+            'SELECT * FROM todos WHERE pert_project_id = $1 AND pert_task_id = $2 LIMIT 1',
+            [req.params.id, pertTaskId]
+        );
+        const existingTodo = linkedTodoResult.rows.length > 0 ? rowToTodo(linkedTodoResult.rows[0]) : null;
+
+        // Use provided dates, falling back to existing todo dates, then to PERT task startDate
+        const effectiveScheduledDate = newScheduledDate || existingTodo?.scheduledDate || targetTask.startDate;
+        const effectiveDueDate = newDueDate || existingTodo?.dueDate;
+
         // Build modified task list with proposed changes
         const modifiedTasks = tasks.map((t: any) => {
             if (t.id === pertTaskId) {
                 const modified = { ...t };
-                if (newScheduledDate) modified.startDate = newScheduledDate;
-                if (newDueDate && newScheduledDate) {
-                    const start = new Date(newScheduledDate + 'T00:00:00');
-                    const end = new Date(newDueDate + 'T00:00:00');
+                if (effectiveScheduledDate) modified.startDate = effectiveScheduledDate;
+                if (effectiveDueDate && effectiveScheduledDate) {
+                    const start = new Date(effectiveScheduledDate + 'T00:00:00');
+                    const end = new Date(effectiveDueDate + 'T00:00:00');
                     const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000));
                     modified.likely = days;
                     modified.optimistic = Math.max(1, Math.round(days * 0.75));
@@ -956,9 +967,9 @@ app.post('/api/projects/:id/impact', async (req, res) => {
         const proposedNode = proposed.nodeMap.get(pertTaskId)!;
 
         // Check 1: Would the new start date violate predecessor constraints?
-        if (newScheduledDate && projectStartDate) {
+        if (effectiveScheduledDate && projectStartDate) {
             const baseDate = new Date(projectStartDate + 'T00:00:00');
-            const proposedStart = new Date(newScheduledDate + 'T00:00:00');
+            const proposedStart = new Date(effectiveScheduledDate + 'T00:00:00');
             const proposedOffset = Math.round((proposedStart.getTime() - baseDate.getTime()) / 86400000);
 
             // Find the latest predecessor finish
