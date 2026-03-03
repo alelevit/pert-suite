@@ -238,8 +238,7 @@ export async function apiGetPertImpact(
     newScheduledDate?: string,
     newDueDate?: string
 ): Promise<PertImpactResult> {
-    const API_ROOT = import.meta.env.VITE_API_URL || '';
-    const res = await fetch(`${API_ROOT}/api/projects/${projectId}/impact`, {
+    const res = await fetch(`${API_BASE}/projects/${projectId}/impact`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pertTaskId, newScheduledDate, newDueDate }),
