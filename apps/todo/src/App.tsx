@@ -1296,7 +1296,6 @@ function App() {
                         onGoToPert={(projectId) => {
                             setAutoLoadProjectId(projectId);
                             setView('pert');
-                            setSelectedTaskId(null);
                         }}
                     />
                 );
@@ -2346,7 +2345,6 @@ function TaskDetailPanel({ task, allTodos, sections, onClose, onUpdate, onComple
                             <button
                                 onClick={() => {
                                     onGoToPert(task.pertProjectId!);
-                                    onClose();
                                 }}
                                 style={{
                                     marginTop: '8px',
