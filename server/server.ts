@@ -545,9 +545,10 @@ app.put('/api/todos/:id', async (req, res) => {
             if (updated.pertProjectId && updated.pertTaskId) {
                 const durationChanged = req.body.durationDays !== undefined && req.body.durationDays !== existing.durationDays;
                 const dueDateChanged = req.body.dueDate !== undefined && req.body.dueDate !== existing.dueDate;
+                const scheduledDateChanged = req.body.scheduledDate !== undefined && req.body.scheduledDate !== existing.scheduledDate;
                 const titleChanged = req.body.title !== undefined && req.body.title !== existing.title;
 
-                if (durationChanged || dueDateChanged || titleChanged) {
+                if (durationChanged || dueDateChanged || scheduledDateChanged || titleChanged) {
                     try {
                         const projResult = await pool.query('SELECT * FROM projects WHERE id = $1', [updated.pertProjectId]);
                         if (projResult.rows.length > 0) {
@@ -563,12 +564,17 @@ app.put('/api/todos/:id', async (req, res) => {
                                     pertTask.name = updated.title;
                                 }
 
+                                // Sync start date — pin the PERT task to the todo's scheduled date
+                                if (scheduledDateChanged && updated.scheduledDate) {
+                                    pertTask.startDate = updated.scheduledDate;
+                                }
+
                                 // Sync duration: if durationDays changed directly, use it
-                                // If dueDate changed, compute new duration from scheduledDate/dueDate delta
+                                // If dueDate or scheduledDate changed, compute new duration from the delta
                                 let newLikely = pertTask.likely;
                                 if (durationChanged && updated.durationDays) {
                                     newLikely = updated.durationDays;
-                                } else if (dueDateChanged && updated.dueDate && updated.scheduledDate) {
+                                } else if ((dueDateChanged || scheduledDateChanged) && updated.dueDate && updated.scheduledDate) {
                                     const start = new Date(updated.scheduledDate + 'T00:00:00');
                                     const end = new Date(updated.dueDate + 'T00:00:00');
                                     const diffDays = Math.round((end.getTime() - start.getTime()) / (86400000));
@@ -586,12 +592,18 @@ app.put('/api/todos/:id', async (req, res) => {
                                     pertTask.pessimistic = Math.round(newLikely * (1 + range));
                                 }
 
+                                // Also update durationDays on the todo to stay in sync
+                                if (newLikely !== existing.durationDays) {
+                                    updated.durationDays = newLikely;
+                                    await updateTodo(updated);
+                                }
+
                                 tasks[taskIdx] = pertTask;
                                 await pool.query(
                                     'UPDATE projects SET tasks = $1, updated_at = $2 WHERE id = $3',
                                     [JSON.stringify(tasks), Date.now(), updated.pertProjectId]
                                 );
-                                console.log(`🔄 Synced todo → PERT: task "${pertTask.name}" in project ${updated.pertProjectId}`);
+                                console.log(`🔄 Synced todo → PERT: task "${pertTask.name}" (start: ${pertTask.startDate}, likely: ${pertTask.likely}d) in project ${updated.pertProjectId}`);
                             }
                         }
                     } catch (syncErr) {

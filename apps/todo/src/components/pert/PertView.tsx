@@ -74,7 +74,7 @@ export default function PertView() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatHistory]);
 
-  const pertNodes = useMemo(() => calculateCPM(tasks), [tasks]);
+  const pertNodes = useMemo(() => calculateCPM(tasks, projectStartDate || undefined), [tasks, projectStartDate]);
   const projectDuration = useMemo(() => {
     return pertNodes.reduce((max, node) => Math.max(max, node.earlyFinish), 0);
   }, [pertNodes]);

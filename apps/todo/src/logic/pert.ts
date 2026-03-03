@@ -24,7 +24,7 @@ export function calculateExpectedTime(task: PertTask): number {
     return (task.optimistic + 4 * task.likely + task.pessimistic) / 6;
 }
 
-export function calculateCPM(tasks: PertTask[]): PertNode[] {
+export function calculateCPM(tasks: PertTask[], projectStartDate?: string): PertNode[] {
     const nodeMap = new Map<string, PertNode>();
 
     tasks.forEach(task => {
@@ -56,6 +56,9 @@ export function calculateCPM(tasks: PertTask[]): PertNode[] {
         return Array.from(nodeMap.values());
     }
 
+    // Compute base date for fixed-start constraints
+    const baseDate = projectStartDate ? new Date(projectStartDate + 'T00:00:00') : null;
+
     // Forward Pass
     sortedIds.forEach(id => {
         const node = nodeMap.get(id)!;
@@ -68,7 +71,21 @@ export function calculateCPM(tasks: PertTask[]): PertNode[] {
             }
         });
 
-        node.earlyStart = maxPredecessorEF;
+        // If this task has a fixed startDate (from linked Todo), use it as a constraint
+        let fixedStartOffset = -1;
+        if (node.startDate && baseDate && !isNaN(baseDate.getTime())) {
+            const taskStart = new Date(node.startDate + 'T00:00:00');
+            if (!isNaN(taskStart.getTime())) {
+                fixedStartOffset = Math.round((taskStart.getTime() - baseDate.getTime()) / 86400000);
+            }
+        }
+
+        if (fixedStartOffset >= 0) {
+            // Use the fixed date, but never earlier than dependencies allow
+            node.earlyStart = Math.max(fixedStartOffset, maxPredecessorEF);
+        } else {
+            node.earlyStart = maxPredecessorEF;
+        }
         node.earlyFinish = node.earlyStart + node.duration;
     });
 
