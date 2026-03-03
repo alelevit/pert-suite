@@ -813,6 +813,209 @@ app.get('/api/projects/:id/linked-todos', async (req, res) => {
     }
 });
 
+// POST /api/projects/:id/impact — analyze impact of changing a task's dates
+// Body: { pertTaskId, newScheduledDate?, newDueDate? }
+// Returns: { warnings: string[], affectedTasks: string[], criticalPath: boolean, projectEndDelta: number }
+app.post('/api/projects/:id/impact', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM projects WHERE id = $1', [req.params.id]);
+        if (result.rows.length === 0) {
+            res.status(404).json({ error: 'Project not found' });
+            return;
+        }
+
+        const project = rowToProject(result.rows[0]);
+        const tasks = project.tasks as any[];
+        const { pertTaskId, newScheduledDate, newDueDate } = req.body;
+        const projectStartDate = project.startDate;
+
+        if (!pertTaskId) {
+            res.status(400).json({ error: 'pertTaskId is required' });
+            return;
+        }
+
+        const targetTask = tasks.find((t: any) => t.id === pertTaskId);
+        if (!targetTask) {
+            res.status(404).json({ error: 'Task not found in project' });
+            return;
+        }
+
+        // Helper: inline CPM calculation
+        function runCPM(taskList: any[], startDateOverrides?: Map<string, string>) {
+            const nodeMap = new Map<string, any>();
+            for (const t of taskList) {
+                const dur = (t.optimistic + 4 * t.likely + t.pessimistic) / 6;
+                nodeMap.set(t.id, { ...t, duration: dur, earlyStart: 0, earlyFinish: 0, lateStart: 0, lateFinish: 0, slack: 0, isCritical: false });
+            }
+            const successorsMap = new Map<string, string[]>();
+            for (const t of taskList) successorsMap.set(t.id, []);
+            for (const t of taskList) {
+                for (const depId of (t.dependencies || [])) {
+                    const succs = successorsMap.get(depId);
+                    if (succs) succs.push(t.id);
+                }
+            }
+            // Simple topological sort
+            const visited = new Set<string>();
+            const temp = new Set<string>();
+            const order: string[] = [];
+            const taskMap = new Map(taskList.map((t: any) => [t.id, t]));
+            function visit(taskId: string): boolean {
+                if (temp.has(taskId)) return false;
+                if (visited.has(taskId)) return true;
+                temp.add(taskId);
+                const task = taskMap.get(taskId);
+                if (task) { for (const depId of (task.dependencies || [])) { if (!visit(depId)) return false; } }
+                temp.delete(taskId);
+                visited.add(taskId);
+                order.push(taskId);
+                return true;
+            }
+            for (const t of taskList) { if (!visited.has(t.id)) { if (!visit(t.id)) return null; } }
+
+            const baseDate = projectStartDate ? new Date(projectStartDate + 'T00:00:00') : null;
+
+            // Forward pass
+            for (const id of order) {
+                const node = nodeMap.get(id)!;
+                let maxPredEF = 0;
+                for (const depId of (node.dependencies || [])) {
+                    const dep = nodeMap.get(depId);
+                    if (dep) maxPredEF = Math.max(maxPredEF, dep.earlyFinish);
+                }
+                // Check for fixed start date
+                const overrideStart = startDateOverrides?.get(id) || node.startDate;
+                let fixedOffset = -1;
+                if (overrideStart && baseDate && !isNaN(baseDate.getTime())) {
+                    const ts = new Date(overrideStart + 'T00:00:00');
+                    if (!isNaN(ts.getTime())) fixedOffset = Math.round((ts.getTime() - baseDate.getTime()) / 86400000);
+                }
+                node.earlyStart = fixedOffset >= 0 ? Math.max(fixedOffset, maxPredEF) : maxPredEF;
+                node.earlyFinish = node.earlyStart + node.duration;
+            }
+
+            let projectEnd = 0;
+            nodeMap.forEach(n => { projectEnd = Math.max(projectEnd, n.earlyFinish); });
+
+            // Backward pass
+            for (const id of [...order].reverse()) {
+                const node = nodeMap.get(id)!;
+                const successors = successorsMap.get(id) || [];
+                if (successors.length === 0) {
+                    node.lateFinish = projectEnd;
+                } else {
+                    let minSuccLS = Infinity;
+                    for (const sId of successors) {
+                        const s = nodeMap.get(sId);
+                        if (s) minSuccLS = Math.min(minSuccLS, s.lateStart);
+                    }
+                    node.lateFinish = minSuccLS;
+                }
+                node.lateStart = node.lateFinish - node.duration;
+                node.slack = node.lateStart - node.earlyStart;
+                node.isCritical = Math.abs(node.slack) < 0.01;
+            }
+
+            return { nodeMap, projectEnd, order };
+        }
+
+        // Run CPM with current state
+        const current = runCPM(tasks);
+        if (!current) {
+            res.json({ warnings: ['⚠️ Cycle detected in dependency graph'], affectedTasks: [], criticalPath: false, projectEndDelta: 0 });
+            return;
+        }
+
+        // Build modified task list with proposed changes
+        const modifiedTasks = tasks.map((t: any) => {
+            if (t.id === pertTaskId) {
+                const modified = { ...t };
+                if (newScheduledDate) modified.startDate = newScheduledDate;
+                if (newDueDate && newScheduledDate) {
+                    const start = new Date(newScheduledDate + 'T00:00:00');
+                    const end = new Date(newDueDate + 'T00:00:00');
+                    const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000));
+                    modified.likely = days;
+                    modified.optimistic = Math.max(1, Math.round(days * 0.75));
+                    modified.pessimistic = Math.round(days * 1.25);
+                }
+                return modified;
+            }
+            return t;
+        });
+
+        const proposed = runCPM(modifiedTasks);
+        if (!proposed) {
+            res.json({ warnings: ['⚠️ Cycle detected in dependency graph'], affectedTasks: [], criticalPath: false, projectEndDelta: 0 });
+            return;
+        }
+
+        const warnings: string[] = [];
+        const affectedTasks: string[] = [];
+        const currentNode = current.nodeMap.get(pertTaskId)!;
+        const proposedNode = proposed.nodeMap.get(pertTaskId)!;
+
+        // Check 1: Would the new start date violate predecessor constraints?
+        if (newScheduledDate && projectStartDate) {
+            const baseDate = new Date(projectStartDate + 'T00:00:00');
+            const proposedStart = new Date(newScheduledDate + 'T00:00:00');
+            const proposedOffset = Math.round((proposedStart.getTime() - baseDate.getTime()) / 86400000);
+
+            // Find the latest predecessor finish
+            let latestPredFinish = 0;
+            for (const depId of (targetTask.dependencies || [])) {
+                const depNode = current.nodeMap.get(depId);
+                if (depNode) latestPredFinish = Math.max(latestPredFinish, depNode.earlyFinish);
+            }
+
+            if (proposedOffset < latestPredFinish) {
+                // Find predecessor names
+                const predNames = (targetTask.dependencies || [])
+                    .map((depId: string) => tasks.find((t: any) => t.id === depId)?.name)
+                    .filter(Boolean);
+                const latestPredDate = new Date(baseDate);
+                latestPredDate.setDate(latestPredDate.getDate() + Math.round(latestPredFinish));
+                warnings.push(`⛔ Cannot start before ${latestPredDate.toISOString().split('T')[0]} — depends on: ${predNames.join(', ')}`);
+            }
+        }
+
+        // Check 2: Which downstream tasks would shift?
+        for (const [taskId, proposedTaskNode] of proposed.nodeMap) {
+            if (taskId === pertTaskId) continue;
+            const currentTaskNode = current.nodeMap.get(taskId);
+            if (currentTaskNode && Math.abs(proposedTaskNode.earlyStart - currentTaskNode.earlyStart) > 0.01) {
+                const deltaStr = proposedTaskNode.earlyStart > currentTaskNode.earlyStart
+                    ? `+${Math.round(proposedTaskNode.earlyStart - currentTaskNode.earlyStart)}d later`
+                    : `${Math.round(proposedTaskNode.earlyStart - currentTaskNode.earlyStart)}d earlier`;
+                affectedTasks.push(`${proposedTaskNode.name} (${deltaStr})`);
+            }
+        }
+
+        if (affectedTasks.length > 0) {
+            warnings.push(`📋 Will shift ${affectedTasks.length} dependent task${affectedTasks.length > 1 ? 's' : ''}`);
+        }
+
+        // Check 3: Critical path impact
+        const isCritical = currentNode.isCritical;
+        if (isCritical) {
+            warnings.push(`🔴 This task is on the critical path`);
+        }
+
+        // Check 4: Project end date impact
+        const projectEndDelta = Math.round(proposed.projectEnd - current.projectEnd);
+        if (projectEndDelta > 0) {
+            warnings.push(`⏰ Project finish pushed ${projectEndDelta} day${projectEndDelta > 1 ? 's' : ''} later`);
+        } else if (projectEndDelta < 0) {
+            warnings.push(`✅ Project finish moves ${Math.abs(projectEndDelta)} day${Math.abs(projectEndDelta) > 1 ? 's' : ''} earlier`);
+        }
+
+        res.json({ warnings, affectedTasks, criticalPath: isCritical, projectEndDelta });
+    } catch (err) {
+        console.error('Error computing impact:', err);
+        res.status(500).json({ error: 'Failed to compute impact' });
+    }
+});
+
 // DELETE /api/projects/:id/linked-todos — unlink all todos from a project
 app.delete('/api/projects/:id/linked-todos', async (req, res) => {
     try {

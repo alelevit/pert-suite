@@ -217,3 +217,33 @@ export async function mockAnalyzeTodos(tasks: TodoTask[]): Promise<string> {
 
     return tips.join('\n\n');
 }
+
+// ========================
+// PERT Impact Analysis
+// ========================
+
+export interface PertImpactResult {
+    warnings: string[];
+    affectedTasks: string[];
+    criticalPath: boolean;
+    projectEndDelta: number;
+}
+
+/**
+ * Analyze the impact of changing dates on a PERT-linked task.
+ */
+export async function apiGetPertImpact(
+    projectId: string,
+    pertTaskId: string,
+    newScheduledDate?: string,
+    newDueDate?: string
+): Promise<PertImpactResult> {
+    const API_ROOT = import.meta.env.VITE_API_URL || '';
+    const res = await fetch(`${API_ROOT}/api/projects/${projectId}/impact`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pertTaskId, newScheduledDate, newDueDate }),
+    });
+    if (!res.ok) throw new Error('Failed to get impact analysis');
+    return res.json();
+}

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { TodoTask } from '@pert-suite/shared';
-import { apiGetTodos, apiGetTodayTodos, apiGetUpcomingTodos, apiGetSections, apiCreateTodo, apiCompleteTodo, apiDeleteTodo, apiUpdateTodo, apiAnalyzeTodos, mockAnalyzeTodos, getCachedTodos, getCachedAllTodos, getCachedSections } from './services/todoApi';
+import { apiGetTodos, apiGetTodayTodos, apiGetUpcomingTodos, apiGetSections, apiCreateTodo, apiCompleteTodo, apiDeleteTodo, apiUpdateTodo, apiAnalyzeTodos, mockAnalyzeTodos, getCachedTodos, getCachedAllTodos, getCachedSections, apiGetPertImpact } from './services/todoApi';
+import type { PertImpactResult } from './services/todoApi';
 import { Sun, Inbox, Calendar, ChevronRight, ChevronDown, Plus, Check, Trash2, RotateCcw, Flag, Clock, Loader, Tag, X, Settings, Sparkles, Send, HelpCircle, Edit2, Menu, BarChart3 } from 'lucide-react';
 import PertView from './components/pert/PertView';
 
@@ -1938,6 +1939,11 @@ function TaskDetailPanel({ task, allTodos, sections, onClose, onUpdate, onComple
     const subtaskInputRef = useRef<HTMLInputElement>(null);
     const panelRef = useRef<HTMLDivElement>(null);
 
+    // PERT impact warnings
+    const [pertWarnings, setPertWarnings] = useState<PertImpactResult | null>(null);
+    const [warningLoading, setWarningLoading] = useState(false);
+    const warningTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
     // Sync state when task changes
     useEffect(() => {
         setEditTitle(task.title);
@@ -2124,6 +2130,20 @@ function TaskDetailPanel({ task, allTodos, sections, onClose, onUpdate, onComple
                             onChange={e => {
                                 setEditDueDate(e.target.value);
                                 onUpdate({ dueDate: e.target.value || undefined });
+                                // Trigger PERT impact analysis
+                                if (task.pertProjectId && task.pertTaskId) {
+                                    if (warningTimerRef.current) clearTimeout(warningTimerRef.current);
+                                    const newDue = e.target.value;
+                                    const newSched = editScheduledDate;
+                                    warningTimerRef.current = setTimeout(async () => {
+                                        setWarningLoading(true);
+                                        try {
+                                            const result = await apiGetPertImpact(task.pertProjectId!, task.pertTaskId!, newSched || undefined, newDue || undefined);
+                                            setPertWarnings(result);
+                                        } catch { /* ignore */ }
+                                        setWarningLoading(false);
+                                    }, 500);
+                                }
                             }}
                             style={inputStyle}
                         />
@@ -2136,11 +2156,62 @@ function TaskDetailPanel({ task, allTodos, sections, onClose, onUpdate, onComple
                             onChange={e => {
                                 setEditScheduledDate(e.target.value);
                                 onUpdate({ scheduledDate: e.target.value || undefined });
+                                // Trigger PERT impact analysis
+                                if (task.pertProjectId && task.pertTaskId) {
+                                    if (warningTimerRef.current) clearTimeout(warningTimerRef.current);
+                                    const newSched = e.target.value;
+                                    const newDue = editDueDate;
+                                    warningTimerRef.current = setTimeout(async () => {
+                                        setWarningLoading(true);
+                                        try {
+                                            const result = await apiGetPertImpact(task.pertProjectId!, task.pertTaskId!, newSched || undefined, newDue || undefined);
+                                            setPertWarnings(result);
+                                        } catch { /* ignore */ }
+                                        setWarningLoading(false);
+                                    }, 500);
+                                }
                             }}
                             style={inputStyle}
                         />
                     </div>
                 </div>
+
+                {/* PERT Impact Warnings */}
+                {task.pertProjectId && task.pertTaskId && pertWarnings && pertWarnings.warnings.length > 0 && (
+                    <div style={{
+                        padding: '10px 14px',
+                        background: pertWarnings.warnings.some(w => w.startsWith('⛔'))
+                            ? 'rgba(239, 68, 68, 0.08)'
+                            : pertWarnings.warnings.some(w => w.startsWith('⏰'))
+                                ? 'rgba(245, 158, 11, 0.08)'
+                                : 'rgba(59, 130, 246, 0.08)',
+                        borderRadius: '8px',
+                        border: pertWarnings.warnings.some(w => w.startsWith('⛔'))
+                            ? '1px solid rgba(239, 68, 68, 0.2)'
+                            : pertWarnings.warnings.some(w => w.startsWith('⏰'))
+                                ? '1px solid rgba(245, 158, 11, 0.2)'
+                                : '1px solid rgba(59, 130, 246, 0.2)',
+                        fontSize: '12px',
+                        lineHeight: '1.5',
+                    }}>
+                        <div style={{ fontWeight: 600, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            🔗 PERT Impact{warningLoading && ' (updating...)'}
+                        </div>
+                        {pertWarnings.warnings.map((w, i) => (
+                            <div key={i} style={{ marginBottom: i < pertWarnings.warnings.length - 1 ? '4px' : 0 }}>
+                                {w}
+                            </div>
+                        ))}
+                        {pertWarnings.affectedTasks.length > 0 && (
+                            <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px solid var(--border-color)', fontSize: '11px', color: 'var(--text-muted)' }}>
+                                <strong>Affected tasks:</strong>
+                                {pertWarnings.affectedTasks.map((t, i) => (
+                                    <div key={i} style={{ paddingLeft: '12px' }}>• {t}</div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {/* Priority */}
                 <div>
