@@ -5,8 +5,8 @@
 
 import type { SavedProject } from './projectStorage';
 
-const API_ROOT = import.meta.env.VITE_API_URL || '';
-const API_BASE = `${API_ROOT}/api/projects`;
+const API_ROOT = import.meta.env.VITE_API_URL || '/api';
+const API_BASE = `${API_ROOT}/projects`;
 
 async function handleResponse<T>(response: Response): Promise<T> {
     if (!response.ok) {
