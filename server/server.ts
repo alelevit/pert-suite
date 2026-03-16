@@ -60,6 +60,29 @@ async function initDb() {
         await client.query(`CREATE INDEX IF NOT EXISTS idx_todos_section ON todos(section)`);
         await client.query(`CREATE INDEX IF NOT EXISTS idx_todos_completed_at ON todos(completed_at)`);
         await client.query(`CREATE INDEX IF NOT EXISTS idx_todos_pert_project ON todos(pert_project_id)`);
+
+        // Migration: deduplicate PERT-linked todos
+        // For each (pert_project_id, pert_task_id) group with multiple rows,
+        // keep only the most recently updated row and delete the rest.
+        const dupeResult = await client.query(`
+            DELETE FROM todos
+            WHERE id IN (
+                SELECT id FROM (
+                    SELECT id,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY pert_project_id, pert_task_id
+                            ORDER BY updated_at DESC
+                        ) AS rn
+                    FROM todos
+                    WHERE pert_project_id IS NOT NULL AND pert_task_id IS NOT NULL
+                ) ranked
+                WHERE rn > 1
+            )
+        `);
+        if (dupeResult.rowCount && dupeResult.rowCount > 0) {
+            console.log(`🧹 Cleaned up ${dupeResult.rowCount} duplicate PERT-linked todos`);
+        }
+
         console.log('✅ Database tables and indexes initialized');
     } finally {
         client.release();
@@ -740,10 +763,22 @@ app.post('/api/projects/:id/link-todos', async (req, res) => {
             const now = Date.now();
 
             // Check if a linked todo already exists for this PERT task
+            // Delete any duplicates first, keeping only the most recent
             const existingResult = await pool.query(
-                'SELECT * FROM todos WHERE pert_project_id = $1 AND pert_task_id = $2',
+                'SELECT * FROM todos WHERE pert_project_id = $1 AND pert_task_id = $2 ORDER BY updated_at DESC',
                 [project.id, task.id]
             );
+
+            if (existingResult.rows.length > 1) {
+                // Delete all but the most recent
+                const keepId = existingResult.rows[0].id;
+                const extraIds = existingResult.rows.slice(1).map((r: any) => r.id);
+                await pool.query(
+                    `DELETE FROM todos WHERE id = ANY($1::text[])`,
+                    [extraIds]
+                );
+                console.log(`🧹 link-todos: cleaned ${extraIds.length} duplicate(s) for task "${task.name}"`);
+            }
 
             if (existingResult.rows.length > 0) {
                 // Update existing linked todo
