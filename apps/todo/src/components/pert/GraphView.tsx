@@ -59,10 +59,11 @@ interface GraphViewProps {
     pertNodes: PertNode[];
     calendarDates?: Map<string, CalendarRange>;
     completedTaskIds?: Set<string>;
+    onUncompleteTask?: (pertTaskId: string) => void;
     onNodeClick?: (nodeId: string) => void;
 }
 
-export default function GraphView({ pertNodes, calendarDates, completedTaskIds, onNodeClick }: GraphViewProps) {
+export default function GraphView({ pertNodes, calendarDates, completedTaskIds, onUncompleteTask, onNodeClick }: GraphViewProps) {
     const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
@@ -82,6 +83,9 @@ export default function GraphView({ pertNodes, calendarDates, completedTaskIds, 
                     slack: pn.slack,
                     isCritical: pn.isCritical,
                     isCompleted: completedTaskIds?.has(pn.id) ?? false,
+                    onUncomplete: completedTaskIds?.has(pn.id) && onUncompleteTask
+                        ? () => onUncompleteTask(pn.id)
+                        : undefined,
                     calendarStart: dateRange?.startDate,
                     calendarEnd: dateRange?.endDate,
                 },

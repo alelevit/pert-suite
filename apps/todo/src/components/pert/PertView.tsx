@@ -19,6 +19,7 @@ function formatShortDate(dateStr: string): string {
 interface PertViewProps {
   allTodos?: TodoTask[];
   onOpenTodoTask?: (todoId: string) => void;
+  onUncompleteTask?: (todoId: string) => void;
   pertRefreshKey?: number;
   autoLoadProjectId?: string | null;
   onProjectLoaded?: () => void;
@@ -31,7 +32,7 @@ const defaultExampleTasks: PertTask[] = [
   { id: '4', name: 'Prototype', optimistic: 3, likely: 5, pessimistic: 8, dependencies: ['2', '3'] },
 ];
 
-export default function PertView({ allTodos, onOpenTodoTask, pertRefreshKey, autoLoadProjectId, onProjectLoaded }: PertViewProps) {
+export default function PertView({ allTodos, onOpenTodoTask, onUncompleteTask, pertRefreshKey, autoLoadProjectId, onProjectLoaded }: PertViewProps) {
   // When navigating from "Go to Chart", start empty so we don't flash default tasks
   const [tasks, setTasks] = useState<PertTask[]>(autoLoadProjectId ? [] : defaultExampleTasks);
   const [isAutoLoading, setIsAutoLoading] = useState(!!autoLoadProjectId);
@@ -743,6 +744,12 @@ export default function PertView({ allTodos, onOpenTodoTask, pertRefreshKey, aut
           pertNodes={pertNodes}
           calendarDates={calendarDates}
           completedTaskIds={completedPertTaskIds}
+          onUncompleteTask={(pertTaskId) => {
+            if (isLinked && allTodos && onUncompleteTask && currentProjectId) {
+              const todo = allTodos.find(t => t.pertProjectId === currentProjectId && t.pertTaskId === pertTaskId);
+              if (todo) onUncompleteTask(todo.id);
+            }
+          }}
           onNodeClick={(nodeId) => {
             if (isLinked && allTodos && onOpenTodoTask && currentProjectId) {
               const todo = allTodos.find(t => t.pertProjectId === currentProjectId && t.pertTaskId === nodeId);

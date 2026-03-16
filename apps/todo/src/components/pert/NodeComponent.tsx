@@ -15,6 +15,7 @@ interface NodeData {
     slack: number;
     isCritical: boolean;
     isCompleted?: boolean;
+    onUncomplete?: () => void;
     calendarStart?: string;
     calendarEnd?: string;
 }
@@ -49,9 +50,32 @@ export default function NodeComponent({ data }: { data: NodeData }) {
             <Handle type="target" position={Position.Left} style={{ background: borderColor }} />
             <Handle type="source" position={Position.Right} style={{ background: borderColor }} />
 
-            <div style={{ fontWeight: 'bold', fontSize: '13px', marginBottom: '4px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ fontWeight: 'bold', fontSize: '13px', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                 {d.isCompleted && <span style={{ color: 'var(--accent-success)', fontSize: '14px', flexShrink: 0 }}>✓</span>}
-                <span style={{ textDecoration: d.isCompleted ? 'line-through' : 'none', opacity: d.isCompleted ? 0.7 : 1 }}>{d.name}</span>
+                <span style={{ textDecoration: d.isCompleted ? 'line-through' : 'none', opacity: d.isCompleted ? 0.7 : 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{d.name}</span>
+                {d.isCompleted && d.onUncomplete && (
+                    <button
+                        onClick={(e) => { e.stopPropagation(); d.onUncomplete!(); }}
+                        title="Mark incomplete"
+                        style={{
+                            flexShrink: 0,
+                            padding: '2px 6px',
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            background: 'rgba(255,255,255,0.1)',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: '4px',
+                            color: 'var(--text-muted)',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '3px',
+                            whiteSpace: 'nowrap',
+                        }}
+                    >
+                        ↩ Undo
+                    </button>
+                )}
             </div>
 
             {/* Calendar Date Range */}

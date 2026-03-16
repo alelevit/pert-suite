@@ -773,6 +773,7 @@ function App() {
                 <PertView
                     allTodos={allTodos}
                     onOpenTodoTask={(todoId) => setSelectedTaskId(todoId)}
+                    onUncompleteTask={handleUncomplete}
                     pertRefreshKey={pertRefreshKey}
                     autoLoadProjectId={autoLoadProjectId}
                     onProjectLoaded={() => setAutoLoadProjectId(null)}
