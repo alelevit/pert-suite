@@ -99,13 +99,27 @@ export default function PertView({ allTodos, onOpenTodoTask, onUncompleteTask, p
     return computeCalendarDates(pertNodes, projectStartDate);
   }, [pertNodes, projectStartDate]);
 
-  // Build a set of PERT task IDs whose linked Todo is completed
+  // Build a set of PERT task IDs whose linked Todo is completed.
+  // A PERT task is only "completed" if ALL linked todos for it are completed
+  // (handles duplicates from recurrence or re-linking).
   const completedPertTaskIds = useMemo<Set<string>>(() => {
     if (!isLinked || !allTodos || !currentProjectId) return new Set();
-    const completed = new Set<string>();
+    const hasCompleted = new Set<string>();
+    const hasActive = new Set<string>();
     for (const todo of allTodos) {
-      if (todo.pertProjectId === currentProjectId && todo.pertTaskId && todo.completed) {
-        completed.add(todo.pertTaskId);
+      if (todo.pertProjectId === currentProjectId && todo.pertTaskId) {
+        if (todo.completed) {
+          hasCompleted.add(todo.pertTaskId);
+        } else {
+          hasActive.add(todo.pertTaskId);
+        }
+      }
+    }
+    // Only mark as completed if there's at least one completed copy AND no active copies
+    const completed = new Set<string>();
+    for (const taskId of hasCompleted) {
+      if (!hasActive.has(taskId)) {
+        completed.add(taskId);
       }
     }
     return completed;
