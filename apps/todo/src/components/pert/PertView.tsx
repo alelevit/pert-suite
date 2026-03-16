@@ -24,13 +24,17 @@ interface PertViewProps {
   onProjectLoaded?: () => void;
 }
 
+const defaultExampleTasks: PertTask[] = [
+  { id: '1', name: 'Define Scope', optimistic: 1, likely: 2, pessimistic: 3, dependencies: [] },
+  { id: '2', name: 'Market Research', optimistic: 2, likely: 3, pessimistic: 6, dependencies: ['1'] },
+  { id: '3', name: 'Technical Spec', optimistic: 1, likely: 2, pessimistic: 4, dependencies: ['1'] },
+  { id: '4', name: 'Prototype', optimistic: 3, likely: 5, pessimistic: 8, dependencies: ['2', '3'] },
+];
+
 export default function PertView({ allTodos, onOpenTodoTask, pertRefreshKey, autoLoadProjectId, onProjectLoaded }: PertViewProps) {
-  const [tasks, setTasks] = useState<PertTask[]>([
-    { id: '1', name: 'Define Scope', optimistic: 1, likely: 2, pessimistic: 3, dependencies: [] },
-    { id: '2', name: 'Market Research', optimistic: 2, likely: 3, pessimistic: 6, dependencies: ['1'] },
-    { id: '3', name: 'Technical Spec', optimistic: 1, likely: 2, pessimistic: 4, dependencies: ['1'] },
-    { id: '4', name: 'Prototype', optimistic: 3, likely: 5, pessimistic: 8, dependencies: ['2', '3'] },
-  ]);
+  // When navigating from "Go to Chart", start empty so we don't flash default tasks
+  const [tasks, setTasks] = useState<PertTask[]>(autoLoadProjectId ? [] : defaultExampleTasks);
+  const [isAutoLoading, setIsAutoLoading] = useState(!!autoLoadProjectId);
 
   const [prompt, setPrompt] = useState('');
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('pert_api_key') || '');
@@ -286,6 +290,7 @@ export default function PertView({ allTodos, onOpenTodoTask, pertRefreshKey, aut
   // Auto-load a specific project when navigated from "Go to Chart" button
   useEffect(() => {
     if (!autoLoadProjectId) return;
+    setIsAutoLoading(true);
     (async () => {
       try {
         const project = await apiLoadProject(autoLoadProjectId);
@@ -302,6 +307,7 @@ export default function PertView({ allTodos, onOpenTodoTask, pertRefreshKey, aut
           }
         }
       } catch { /* non-fatal */ }
+      setIsAutoLoading(false);
       onProjectLoaded?.();
     })();
   }, [autoLoadProjectId]);
@@ -710,6 +716,17 @@ export default function PertView({ allTodos, onOpenTodoTask, pertRefreshKey, aut
 
       {/* Graph Area */}
       <div style={{ flex: 1, background: 'var(--bg-app)', position: 'relative', display: 'flex', flexDirection: 'column' }}>
+        {/* Loading overlay when auto-loading a project from "Go to Chart" */}
+        {isAutoLoading && (
+          <div style={{
+            position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center', zIndex: 30,
+            background: 'var(--bg-app)', gap: '12px',
+          }}>
+            <Loader2 size={32} color="var(--accent-primary)" style={{ animation: 'spin 1s linear infinite' }} />
+            <span style={{ fontSize: '14px', color: 'var(--text-muted)' }}>Loading project…</span>
+          </div>
+        )}
         <GraphView
           pertNodes={pertNodes}
           calendarDates={calendarDates}
