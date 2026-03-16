@@ -531,9 +531,25 @@ export async function mockSuggestTasks(
 
 const SPLIT_TASK_PROMPT = `
 You are an expert Project Manager helping decompose a high-level task into smaller, actionable subtasks.
-You will receive one task to split, along with the full project context (description and other tasks).
+You will receive one task to split, along with the full project context including the project description, all sibling tasks, and which tasks depend on the target task (its predecessors and successors).
 
-Your job is to break the given task into 2-5 smaller subtasks that together accomplish the same work.
+Your job is to break the given task into 2-5 MEANINGFULLY DIFFERENT subtasks that together accomplish the same work.
+
+CRITICAL RULES FOR NAMING:
+- Do NOT just prepend generic verbs like "Research", "Execute", "Review" to the parent task name. This is lazy and unhelpful.
+- Each subtask must have a SPECIFIC, DISTINCT name that describes a concrete deliverable or action.
+- Think about what ACTUALLY needs to happen to complete this task. What are the real steps?
+- Use the project description and sibling tasks to understand the domain and produce contextually relevant subtask names.
+
+EXAMPLE of what NOT to do:
+  Task: "Make Presentation"
+  BAD: "Research for Make Presentation", "Execute Make Presentation", "Review Make Presentation"
+  GOOD: "Conduct Topic Research & Gather Data", "Design Slide Deck & Write Content", "Rehearse Presentation & Gather Feedback"
+
+EXAMPLE of what NOT to do:
+  Task: "Deploy educational materials to sites"
+  BAD: "Research Deploy educational materials", "Execute Deploy educational materials", "Finalize Deploy educational materials"
+  GOOD: "Package & Format Materials for Distribution", "Upload Materials to Each Site Platform", "Verify Accessibility & Send Notification to Staff"
 
 Output MUST be a valid JSON object with:
 - "subtasks": An array of task objects, each with: id, name, category, optimistic, likely, pessimistic, dependencies
@@ -545,7 +561,7 @@ Rules:
 3. The FIRST subtask should have NO dependencies within the subtask set (it will inherit the parent's incoming dependencies).
 4. The total estimated time of all subtasks should be roughly equal to the original task's time.
 5. Keep the same category as the parent task, or use a more specific sub-category.
-6. Subtask names should be concrete and action-oriented.
+6. Subtask names must be CONCRETE, SPECIFIC, and DOMAIN-RELEVANT. Reference the project context.
 7. Do NOT include the original task — only return the new subtasks that replace it.
 `;
 
@@ -565,17 +581,33 @@ export async function splitTask(
         throw new Error("API Key is required");
     }
 
+    // Build predecessor/successor context so the AI understands placement
+    const predecessors = allTasks.filter(t => taskToSplit.dependencies.includes(t.id));
+    const successors = allTasks.filter(t => t.dependencies.includes(taskToSplit.id));
+    const siblings = allTasks.filter(t => t.id !== taskToSplit.id);
+
     const messages: { role: string; content: string }[] = [
         { role: "system", content: SPLIT_TASK_PROMPT },
         {
             role: "user",
-            content: `Task to Split:
-${JSON.stringify(taskToSplit, null, 2)}
+            content: `TASK TO SPLIT:
+Name: "${taskToSplit.name}"
+Category: ${taskToSplit.category || 'Uncategorized'}
+Estimates: Optimistic=${taskToSplit.optimistic}, Likely=${taskToSplit.likely}, Pessimistic=${taskToSplit.pessimistic} days
 
-Project Description: ${projectDescription}
+PROJECT DESCRIPTION:
+${projectDescription || '(No description provided)'}
 
-All Current Tasks (for context):
-${JSON.stringify(allTasks, null, 2)}`
+PREDECESSOR TASKS (what happens right before this task):
+${predecessors.length > 0 ? predecessors.map(t => `- "${t.name}" (${t.category || 'Uncategorized'})`).join('\n') : '- None (this is a starting task)'}
+
+SUCCESSOR TASKS (what depends on this task):
+${successors.length > 0 ? successors.map(t => `- "${t.name}" (${t.category || 'Uncategorized'})`).join('\n') : '- None (this is a terminal task)'}
+
+ALL OTHER TASKS IN THE PROJECT (for domain context):
+${siblings.map(t => `- "${t.name}" (${t.category || 'Uncategorized'}, ${t.likely} days)`).join('\n')}
+
+Break "${taskToSplit.name}" into 2-5 specific, domain-relevant subtasks. Do NOT use generic verbs like "Research X" / "Execute X" / "Review X".`
         }
     ];
 
@@ -608,38 +640,67 @@ export async function mockSplitTask(
 ): Promise<SplitTaskResult> {
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    const baseLikely = Math.max(1, Math.round(taskToSplit.likely / 3));
+    const totalLikely = taskToSplit.likely;
+    const third = Math.max(1, Math.round(totalLikely / 3));
+    const remainder = Math.max(1, totalLikely - 2 * third);
+
+    // Generate domain-aware mock names instead of generic "Research/Execute/Review"
+    const taskLower = taskToSplit.name.toLowerCase();
+    let subtaskNames: string[];
+
+    if (taskLower.includes('deploy') || taskLower.includes('release') || taskLower.includes('launch')) {
+        subtaskNames = ['Prepare Deployment Package & Config', 'Execute Rollout to Target Environment', 'Validate Deployment & Monitor Health'];
+    } else if (taskLower.includes('design') || taskLower.includes('ui') || taskLower.includes('interface')) {
+        subtaskNames = ['Create Wireframes & User Flows', 'Build High-Fidelity Mockups', 'Gather Feedback & Iterate on Design'];
+    } else if (taskLower.includes('test') || taskLower.includes('qa') || taskLower.includes('quality')) {
+        subtaskNames = ['Write Test Plan & Test Cases', 'Execute Test Suites & Log Defects', 'Triage Results & Verify Fixes'];
+    } else if (taskLower.includes('present') || taskLower.includes('report') || taskLower.includes('document')) {
+        subtaskNames = ['Gather Data & Outline Key Points', 'Draft Content & Create Visuals', 'Review with Stakeholders & Finalize'];
+    } else if (taskLower.includes('develop') || taskLower.includes('implement') || taskLower.includes('build') || taskLower.includes('code')) {
+        subtaskNames = ['Set Up Architecture & Define Interfaces', 'Implement Core Logic & Features', 'Write Tests & Code Review'];
+    } else if (taskLower.includes('research') || taskLower.includes('analyze') || taskLower.includes('study')) {
+        subtaskNames = ['Define Research Questions & Methodology', 'Collect & Analyze Data', 'Synthesize Findings & Write Summary'];
+    } else if (taskLower.includes('train') || taskLower.includes('education') || taskLower.includes('material')) {
+        subtaskNames = ['Develop Training Curriculum & Materials', 'Schedule & Conduct Sessions', 'Assess Comprehension & Gather Feedback'];
+    } else {
+        // Generic but still better than "Research X / Execute X"
+        subtaskNames = [
+            `Plan & Scope: ${taskToSplit.name}`,
+            `Core Work: ${taskToSplit.name}`,
+            `Validate & Deliver: ${taskToSplit.name}`,
+        ];
+    }
 
     return {
         subtasks: [
             {
                 id: 'split1',
-                name: `Research for ${taskToSplit.name}`,
-                optimistic: Math.max(1, baseLikely - 1),
-                likely: baseLikely,
-                pessimistic: baseLikely + 2,
+                name: subtaskNames[0],
+                optimistic: Math.max(1, third - 1),
+                likely: third,
+                pessimistic: third + 1,
                 dependencies: [],
                 category: taskToSplit.category || 'Uncategorized'
             },
             {
                 id: 'split2',
-                name: `Execute ${taskToSplit.name}`,
-                optimistic: baseLikely,
-                likely: baseLikely + 1,
-                pessimistic: baseLikely + 3,
+                name: subtaskNames[1],
+                optimistic: Math.max(1, third - 1),
+                likely: third,
+                pessimistic: third + 2,
                 dependencies: ['split1'],
                 category: taskToSplit.category || 'Uncategorized'
             },
             {
                 id: 'split3',
-                name: `Review & Finalize ${taskToSplit.name}`,
-                optimistic: 1,
-                likely: 1,
-                pessimistic: 2,
+                name: subtaskNames[2],
+                optimistic: Math.max(1, remainder - 1),
+                likely: remainder,
+                pessimistic: remainder + 1,
                 dependencies: ['split2'],
                 category: taskToSplit.category || 'Uncategorized'
             },
         ],
-        summary: `Split "${taskToSplit.name}" into 3 sequential subtasks: research, execution, and review.`
+        summary: `Split "${taskToSplit.name}" into 3 focused phases with domain-specific deliverables.`
     };
 }
