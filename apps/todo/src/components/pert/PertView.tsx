@@ -98,6 +98,18 @@ export default function PertView({ allTodos, onOpenTodoTask, pertRefreshKey, aut
     return computeCalendarDates(pertNodes, projectStartDate);
   }, [pertNodes, projectStartDate]);
 
+  // Build a set of PERT task IDs whose linked Todo is completed
+  const completedPertTaskIds = useMemo<Set<string>>(() => {
+    if (!isLinked || !allTodos || !currentProjectId) return new Set();
+    const completed = new Set<string>();
+    for (const todo of allTodos) {
+      if (todo.pertProjectId === currentProjectId && todo.pertTaskId && todo.completed) {
+        completed.add(todo.pertTaskId);
+      }
+    }
+    return completed;
+  }, [allTodos, currentProjectId, isLinked]);
+
   const updateTask = (id: string, field: keyof PertTask, value: string | number | string[]) => {
     setTasks(prev => prev.map(t =>
       t.id === id ? { ...t, [field]: value } : t
@@ -730,6 +742,7 @@ export default function PertView({ allTodos, onOpenTodoTask, pertRefreshKey, aut
         <GraphView
           pertNodes={pertNodes}
           calendarDates={calendarDates}
+          completedTaskIds={completedPertTaskIds}
           onNodeClick={(nodeId) => {
             if (isLinked && allTodos && onOpenTodoTask && currentProjectId) {
               const todo = allTodos.find(t => t.pertProjectId === currentProjectId && t.pertTaskId === nodeId);

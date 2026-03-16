@@ -58,10 +58,11 @@ function getLayoutedElements(nodes: Node[], edges: Edge[]) {
 interface GraphViewProps {
     pertNodes: PertNode[];
     calendarDates?: Map<string, CalendarRange>;
+    completedTaskIds?: Set<string>;
     onNodeClick?: (nodeId: string) => void;
 }
 
-export default function GraphView({ pertNodes, calendarDates, onNodeClick }: GraphViewProps) {
+export default function GraphView({ pertNodes, calendarDates, completedTaskIds, onNodeClick }: GraphViewProps) {
     const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
@@ -80,6 +81,7 @@ export default function GraphView({ pertNodes, calendarDates, onNodeClick }: Gra
                     lateFinish: pn.lateFinish,
                     slack: pn.slack,
                     isCritical: pn.isCritical,
+                    isCompleted: completedTaskIds?.has(pn.id) ?? false,
                     calendarStart: dateRange?.startDate,
                     calendarEnd: dateRange?.endDate,
                 },
@@ -114,7 +116,7 @@ export default function GraphView({ pertNodes, calendarDates, onNodeClick }: Gra
         const layouted = getLayoutedElements(initialNodes, initialEdges);
         setNodes(layouted.nodes);
         setEdges(layouted.edges);
-    }, [pertNodes, calendarDates, setNodes, setEdges]);
+    }, [pertNodes, calendarDates, completedTaskIds, setNodes, setEdges]);
 
     // Show empty state if no nodes
     if (!pertNodes || pertNodes.length === 0) {

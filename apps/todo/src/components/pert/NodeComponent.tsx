@@ -14,32 +14,44 @@ interface NodeData {
     lateFinish: number;
     slack: number;
     isCritical: boolean;
+    isCompleted?: boolean;
     calendarStart?: string;
     calendarEnd?: string;
 }
 
 export default function NodeComponent({ data }: { data: NodeData }) {
     const d = data;
-    const criticalColor = d.isCritical ? 'var(--accent-critical)' : 'var(--border-color)';
+
+    // Completed tasks get green styling, overriding critical path
+    const borderColor = d.isCompleted
+        ? 'var(--accent-success)'
+        : d.isCritical ? 'var(--accent-critical)' : 'var(--border-color)';
+
+    const completedOpacity = d.isCompleted ? 0.55 : 1;
 
     return (
         <div
             style={{
-                background: 'var(--bg-node)',
-                border: `2px solid ${criticalColor}`,
+                background: d.isCompleted ? 'rgba(34, 197, 94, 0.08)' : 'var(--bg-node)',
+                border: `2px solid ${borderColor}`,
                 borderRadius: '10px',
                 padding: '10px 14px',
                 minWidth: '200px',
                 fontFamily: 'Inter, sans-serif',
                 color: 'var(--text-main)',
-                boxShadow: d.isCritical ? `0 0 12px ${criticalColor}40` : 'none',
+                boxShadow: d.isCompleted
+                    ? '0 0 12px rgba(34, 197, 94, 0.15)'
+                    : d.isCritical ? `0 0 12px var(--accent-critical)40` : 'none',
+                opacity: completedOpacity,
+                transition: 'opacity 0.3s ease, background 0.3s ease',
             }}
         >
-            <Handle type="target" position={Position.Left} style={{ background: criticalColor }} />
-            <Handle type="source" position={Position.Right} style={{ background: criticalColor }} />
+            <Handle type="target" position={Position.Left} style={{ background: borderColor }} />
+            <Handle type="source" position={Position.Right} style={{ background: borderColor }} />
 
-            <div style={{ fontWeight: 'bold', fontSize: '13px', marginBottom: '4px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                {d.name}
+            <div style={{ fontWeight: 'bold', fontSize: '13px', marginBottom: '4px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {d.isCompleted && <span style={{ color: 'var(--accent-success)', fontSize: '14px', flexShrink: 0 }}>✓</span>}
+                <span style={{ textDecoration: d.isCompleted ? 'line-through' : 'none', opacity: d.isCompleted ? 0.7 : 1 }}>{d.name}</span>
             </div>
 
             {/* Calendar Date Range */}
@@ -70,7 +82,7 @@ export default function NodeComponent({ data }: { data: NodeData }) {
                 </div>
                 <div style={{ background: 'var(--bg-app)', padding: '4px', borderRadius: '4px' }}>
                     <div style={{ fontSize: '9px' }}>Dur</div>
-                    <div style={{ color: d.isCritical ? 'var(--accent-critical)' : 'var(--text-main)', fontWeight: d.isCritical ? 'bold' : 'normal' }}>
+                    <div style={{ color: d.isCritical && !d.isCompleted ? 'var(--accent-critical)' : 'var(--text-main)', fontWeight: d.isCritical && !d.isCompleted ? 'bold' : 'normal' }}>
                         {d.duration.toFixed(1)}
                     </div>
                 </div>
