@@ -61,9 +61,10 @@ interface GraphViewProps {
     completedTaskIds?: Set<string>;
     onUncompleteTask?: (pertTaskId: string) => void;
     onNodeClick?: (nodeId: string) => void;
+    onSplitTask?: (taskId: string) => void;
 }
 
-export default function GraphView({ pertNodes, calendarDates, completedTaskIds, onUncompleteTask, onNodeClick }: GraphViewProps) {
+export default function GraphView({ pertNodes, calendarDates, completedTaskIds, onUncompleteTask, onNodeClick, onSplitTask }: GraphViewProps) {
     const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
@@ -88,6 +89,7 @@ export default function GraphView({ pertNodes, calendarDates, completedTaskIds, 
                         : undefined,
                     calendarStart: dateRange?.startDate,
                     calendarEnd: dateRange?.endDate,
+                    onSplit: onSplitTask ? () => onSplitTask(pn.id) : undefined,
                 },
                 position: { x: 0, y: 0 }
             };

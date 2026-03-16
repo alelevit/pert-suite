@@ -6,8 +6,8 @@ import type { CalendarRange } from '../../logic/pert';
 import GraphView from './GraphView';
 import TaskReviewPage from './TaskReviewPage';
 import ProjectManager from './ProjectManager';
-import { Settings, Loader2, FolderOpen, Save, ListChecks, XCircle, PanelLeftClose, PanelLeft, FilePlus2, MessageSquare, Send, CalendarDays, Link2, Unlink, Wrench, Sparkles } from 'lucide-react';
-import { mockGenerate, generateProjectBreakdown, continueConversation, modifyChartViaChat, mockModifyChart } from '../../services/llm';
+import { Settings, Loader2, FolderOpen, Save, ListChecks, XCircle, PanelLeftClose, PanelLeft, FilePlus2, MessageSquare, Send, CalendarDays, Link2, Unlink, Wrench, Sparkles, Scissors, CheckSquare, Square } from 'lucide-react';
+import { mockGenerate, generateProjectBreakdown, continueConversation, modifyChartViaChat, mockModifyChart, suggestTasks, mockSuggestTasks, splitTask, mockSplitTask } from '../../services/llm';
 import { scanDirectory, type ProjectContext } from '../../logic/fileScanner';
 import { apiUpdateProject, apiMigrateFromLocalStorage, apiLinkToTodo, apiGetLinkedTodos, apiUnlinkProject, apiLoadProject } from '../../services/projectApi';
 
@@ -61,11 +61,16 @@ export default function PertView({ allTodos, onOpenTodoTask, onUncompleteTask, p
 
   // Chat Drawer
   const [chatOpen, setChatOpen] = useState(false);
-  const [chatMode, setChatMode] = useState<'generate' | 'modify'>('generate');
+  const [chatMode, setChatMode] = useState<'generate' | 'modify' | 'suggest'>('generate');
   const [chatFirst, setChatFirst] = useState(false);
   const [chatHistory, setChatHistory] = useState<{ role: 'ai' | 'user', content: string }[]>([]);
   const [chatInput, setChatInput] = useState('');
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Suggest & Split state
+  const [suggestions, setSuggestions] = useState<PertTask[] | null>(null);
+  const [selectedSuggestions, setSelectedSuggestions] = useState<Set<string>>(new Set());
+  const [splitTargetTask, setSplitTargetTask] = useState<PertTask | null>(null);
 
   // Export feedback
   const [exportStatus, setExportStatus] = useState<string | null>(null);
@@ -244,6 +249,124 @@ export default function PertView({ allTodos, onOpenTodoTask, onUncompleteTask, p
     }
   };
 
+  // === Suggest Tasks ===
+  const handleSuggestTasks = async (_message?: string) => {
+    setIsGenerating(true);
+    setSuggestions(null);
+    setSelectedSuggestions(new Set());
+
+    try {
+      let result;
+      if (apiKey) {
+        result = await suggestTasks(prompt || 'General project', tasks, apiKey, selectedModel, projectContext || undefined);
+      } else {
+        result = await mockSuggestTasks(tasks);
+      }
+
+      setSuggestions(result.suggestions);
+      setSelectedSuggestions(new Set(result.suggestions.map(s => s.id)));
+      setChatHistory(prev => [...prev, { role: 'ai', content: `${result.reasoning}\n\nI found ${result.suggestions.length} tasks you might want to add. Select the ones you'd like to include.` }]);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Unknown error';
+      setChatHistory(prev => [...prev, { role: 'ai', content: `❌ Error: ${msg}` }]);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // === Split Task ===
+  const handleSplitTask = async (taskId: string) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    setSplitTargetTask(task);
+    setChatMode('suggest');
+    setChatOpen(true);
+    setChatHistory([{ role: 'ai', content: `✂️ Breaking down "${task.name}" into smaller subtasks...` }]);
+    setSuggestions(null);
+    setSelectedSuggestions(new Set());
+    setIsGenerating(true);
+
+    try {
+      let result;
+      if (apiKey) {
+        result = await splitTask(task, prompt || '', tasks, apiKey, selectedModel);
+      } else {
+        result = await mockSplitTask(task);
+      }
+
+      // Give subtasks unique IDs to avoid collisions
+      const subtasksWithUniqueIds = result.subtasks.map(st => ({
+        ...st,
+        id: `${taskId}_${st.id}`,
+        dependencies: st.dependencies.map(d => `${taskId}_${d}`),
+      }));
+
+      setSuggestions(subtasksWithUniqueIds);
+      setSelectedSuggestions(new Set(subtasksWithUniqueIds.map(s => s.id)));
+      setChatHistory(prev => [...prev, { role: 'ai', content: `${result.summary}\n\nSelect the subtasks you'd like to keep, then click "Accept" to replace the original task.` }]);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Unknown error';
+      setChatHistory(prev => [...prev, { role: 'ai', content: `❌ Error: ${msg}` }]);
+      setSplitTargetTask(null);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // === Accept Suggestions / Split Results ===
+  const handleAcceptSuggestions = () => {
+    if (!suggestions) return;
+
+    const selected = suggestions.filter(s => selectedSuggestions.has(s.id));
+    if (selected.length === 0) return;
+
+    if (splitTargetTask) {
+      // SPLIT mode: replace the parent task with selected subtasks
+      const parentId = splitTargetTask.id;
+      const parentDeps = splitTargetTask.dependencies;
+
+      // First subtask inherits parent's incoming dependencies
+      const firstSubtaskId = selected[0].id;
+      const lastSubtaskId = selected[selected.length - 1].id;
+
+      const rewiredSubtasks = selected.map((st, idx) => ({
+        ...st,
+        dependencies: idx === 0
+          ? [...parentDeps, ...st.dependencies.filter(d => d !== firstSubtaskId && !parentDeps.includes(d))]
+          : st.dependencies,
+      }));
+
+      // Remove parent, add subtasks, and update downstream tasks to reference last subtask
+      const newTasks = tasks
+        .filter(t => t.id !== parentId)
+        .map(t => ({
+          ...t,
+          dependencies: t.dependencies.map(d => d === parentId ? lastSubtaskId : d),
+        }));
+
+      setPendingTasks([...newTasks, ...rewiredSubtasks]);
+      setSplitTargetTask(null);
+    } else {
+      // SUGGEST mode: add selected suggestions to existing tasks
+      setPendingTasks([...tasks, ...selected]);
+    }
+
+    setSuggestions(null);
+    setSelectedSuggestions(new Set());
+    setChatOpen(false);
+    setChatHistory([]);
+  };
+
+  const toggleSuggestionSelection = (id: string) => {
+    setSelectedSuggestions(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   // === Send chat message ===
   const handleSendChat = () => {
     const msg = chatInput.trim();
@@ -252,6 +375,10 @@ export default function PertView({ allTodos, onOpenTodoTask, onUncompleteTask, p
 
     if (chatMode === 'modify') {
       handleModifyChat(msg);
+    } else if (chatMode === 'suggest') {
+      // In suggest mode, treat chat input as a request to suggest more tasks
+      setChatHistory(prev => [...prev, { role: 'user', content: msg }]);
+      handleSuggestTasks(msg);
     } else {
       handleChatReply(msg);
     }
@@ -545,7 +672,7 @@ export default function PertView({ allTodos, onOpenTodoTask, onUncompleteTask, p
           <FolderOpen size={18} /> Projects
         </button>
         <button
-          onClick={() => { setChatOpen(!chatOpen); if (!chatOpen) setChatHistory([]); }}
+          onClick={() => { setChatOpen(!chatOpen); if (!chatOpen) { setChatHistory([]); setSuggestions(null); setSplitTargetTask(null); } }}
           title="Toggle Chat"
           style={{
             padding: '8px 12px', background: chatOpen ? 'var(--accent-primary)' : 'var(--bg-panel)',
@@ -770,6 +897,7 @@ export default function PertView({ allTodos, onOpenTodoTask, onUncompleteTask, p
               if (todo) onOpenTodoTask(todo.id);
             }
           }}
+          onSplitTask={handleSplitTask}
         />
 
         {/* Generation Input */}
@@ -880,7 +1008,7 @@ export default function PertView({ allTodos, onOpenTodoTask, onUncompleteTask, p
               <Sparkles size={14} /> New Project
             </button>
             <button
-              onClick={() => { setChatMode('modify'); setChatHistory([]); }}
+              onClick={() => { setChatMode('modify'); setChatHistory([]); setSuggestions(null); setSplitTargetTask(null); }}
               style={{
                 flex: 1, padding: '8px', borderRadius: '6px', fontSize: '12px', fontWeight: 500,
                 border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
@@ -891,6 +1019,18 @@ export default function PertView({ allTodos, onOpenTodoTask, onUncompleteTask, p
             >
               <Wrench size={14} /> Modify Chart
             </button>
+            <button
+              onClick={() => { setChatMode('suggest'); setChatHistory([]); setSuggestions(null); setSplitTargetTask(null); }}
+              style={{
+                flex: 1, padding: '8px', borderRadius: '6px', fontSize: '12px', fontWeight: 500,
+                border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                background: chatMode === 'suggest' ? 'var(--accent-primary)' : 'var(--bg-card, var(--bg-panel))',
+                color: chatMode === 'suggest' ? 'white' : 'var(--text-muted)',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <Scissors size={14} /> Suggest & Split
+            </button>
           </div>
 
           {/* Chat Messages */}
@@ -898,11 +1038,13 @@ export default function PertView({ allTodos, onOpenTodoTask, onUncompleteTask, p
             {chatHistory.length === 0 && (
               <div style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--text-muted)' }}>
                 <div style={{ fontSize: '36px', marginBottom: '12px', opacity: 0.3 }}>
-                  {chatMode === 'modify' ? '🛠️' : '✨'}
+                  {chatMode === 'modify' ? '🛠️' : chatMode === 'suggest' ? '✂️' : '✨'}
                 </div>
                 <p style={{ fontSize: '14px', marginBottom: '8px' }}>
                   {chatMode === 'modify'
                     ? 'Ask me to modify your chart'
+                    : chatMode === 'suggest'
+                    ? 'I can suggest missing tasks or split existing ones'
                     : 'Ask me to help plan your project'}
                 </p>
                 <div style={{ fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '6px', textAlign: 'left', maxWidth: '280px', margin: '0 auto' }}>
@@ -919,6 +1061,16 @@ export default function PertView({ allTodos, onOpenTodoTask, onUncompleteTask, p
                       <div style={{ padding: '6px 10px', background: 'var(--bg-app)', borderRadius: '6px', cursor: 'pointer' }}
                         onClick={() => setChatInput('Make the Prototype task take 10 days instead of 5')}>
                         💡 "Make the Prototype task take 10 days"
+                      </div>
+                    </>
+                  ) : chatMode === 'suggest' ? (
+                    <>
+                      <div style={{ padding: '6px 10px', background: 'var(--bg-app)', borderRadius: '6px', cursor: 'pointer' }}
+                        onClick={() => { handleSuggestTasks(); }}>
+                        ✨ Suggest missing tasks for my project
+                      </div>
+                      <div style={{ padding: '6px 10px', background: 'var(--bg-app)', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', color: 'var(--text-muted)' }}>
+                        💡 Tip: Hover over a node in the chart and click ✂️ to split it
                       </div>
                     </>
                   ) : (
@@ -954,6 +1106,73 @@ export default function PertView({ allTodos, onOpenTodoTask, onUncompleteTask, p
               </div>
             ))}
 
+            {/* Suggestion Cards */}
+            {suggestions && suggestions.length > 0 && (
+              <div style={{
+                padding: '12px',
+                background: 'var(--bg-app)',
+                borderRadius: '10px',
+                border: '1px solid var(--border-color)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px',
+              }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '4px' }}>
+                  {splitTargetTask ? `Subtasks for "${splitTargetTask.name}"` : 'Suggested Tasks'}
+                </div>
+                {suggestions.map(s => (
+                  <div
+                    key={s.id}
+                    onClick={() => toggleSuggestionSelection(s.id)}
+                    style={{
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                      border: selectedSuggestions.has(s.id) ? '1px solid var(--accent-primary)' : '1px solid var(--border-color)',
+                      background: selectedSuggestions.has(s.id) ? 'rgba(99, 102, 241, 0.08)' : 'var(--bg-panel)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '8px',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    {selectedSuggestions.has(s.id)
+                      ? <CheckSquare size={16} color="var(--accent-primary)" style={{ flexShrink: 0, marginTop: '1px' }} />
+                      : <Square size={16} color="var(--text-muted)" style={{ flexShrink: 0, marginTop: '1px' }} />}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '13px', color: 'var(--text-main)', fontWeight: 500 }}>{s.name}</div>
+                      <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        {s.category && <span>{s.category} • </span>}
+                        O: {s.optimistic} | M: {s.likely} | P: {s.pessimistic} days
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <button
+                  onClick={handleAcceptSuggestions}
+                  disabled={selectedSuggestions.size === 0}
+                  style={{
+                    marginTop: '8px',
+                    width: '100%',
+                    padding: '10px',
+                    background: selectedSuggestions.size > 0 ? 'var(--accent-success)' : 'var(--bg-card, var(--bg-panel))',
+                    color: selectedSuggestions.size > 0 ? 'white' : 'var(--text-muted)',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontWeight: 600,
+                    fontSize: '13px',
+                    cursor: selectedSuggestions.size > 0 ? 'pointer' : 'default',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  ✓ Accept {selectedSuggestions.size} {splitTargetTask ? 'Subtask' : 'Task'}{selectedSuggestions.size !== 1 ? 's' : ''}
+                </button>
+              </div>
+            )}
+
             {isGenerating && (
               <div style={{
                 padding: '10px 14px', borderRadius: '12px', alignSelf: 'flex-start',
@@ -981,7 +1200,7 @@ export default function PertView({ allTodos, onOpenTodoTask, onUncompleteTask, p
                   handleSendChat();
                 }
               }}
-              placeholder={chatMode === 'modify' ? 'Ask to modify the chart...' : 'Continue the conversation...'}
+              placeholder={chatMode === 'modify' ? 'Ask to modify the chart...' : chatMode === 'suggest' ? 'Ask for task suggestions...' : 'Continue the conversation...'}
               disabled={isGenerating}
               style={{
                 flex: 1,

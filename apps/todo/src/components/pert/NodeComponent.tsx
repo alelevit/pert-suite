@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
 
 function formatShortDate(dateStr: string): string {
@@ -16,12 +17,14 @@ interface NodeData {
     isCritical: boolean;
     isCompleted?: boolean;
     onUncomplete?: () => void;
+    onSplit?: () => void;
     calendarStart?: string;
     calendarEnd?: string;
 }
 
 export default function NodeComponent({ data }: { data: NodeData }) {
     const d = data;
+    const [hovered, setHovered] = useState(false);
 
     // Completed tasks get green styling, overriding critical path
     const borderColor = d.isCompleted
@@ -32,6 +35,8 @@ export default function NodeComponent({ data }: { data: NodeData }) {
 
     return (
         <div
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
             style={{
                 background: d.isCompleted ? 'rgba(34, 197, 94, 0.08)' : 'var(--bg-node)',
                 border: `2px solid ${borderColor}`,
@@ -45,8 +50,37 @@ export default function NodeComponent({ data }: { data: NodeData }) {
                     : d.isCritical ? `0 0 12px var(--accent-critical)40` : 'none',
                 opacity: completedOpacity,
                 transition: 'opacity 0.3s ease, background 0.3s ease',
+                position: 'relative',
             }}
         >
+            {/* Split button on hover */}
+            {hovered && !d.isCompleted && d.onSplit && (
+                <button
+                    onClick={(e) => { e.stopPropagation(); d.onSplit!(); }}
+                    title="Split into subtasks"
+                    style={{
+                        position: 'absolute',
+                        top: '-10px',
+                        right: '-10px',
+                        padding: '3px 7px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        background: 'var(--accent-primary)',
+                        border: 'none',
+                        borderRadius: '6px',
+                        color: 'white',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '3px',
+                        whiteSpace: 'nowrap',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                        zIndex: 10,
+                    }}
+                >
+                    ✂️ Split
+                </button>
+            )}
             <Handle type="target" position={Position.Left} style={{ background: borderColor }} />
             <Handle type="source" position={Position.Right} style={{ background: borderColor }} />
 

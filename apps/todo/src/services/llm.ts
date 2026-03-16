@@ -398,3 +398,248 @@ export async function mockModifyChart(
 
     return { tasks, summary };
 }
+
+// ========================
+// Suggest Missing Tasks
+// ========================
+
+const SUGGEST_TASKS_PROMPT = `
+You are an expert Project Manager reviewing an existing PERT chart.
+You will receive the project description and the current list of tasks.
+
+Your job is to identify 3-7 ADDITIONAL tasks that are missing from the project plan.
+Think about what's been overlooked: preparation steps, reviews, handoffs, testing, documentation, deployment, etc.
+
+Output MUST be a valid JSON object with:
+- "suggestions": An array of task objects, each with: id, name, category, optimistic, likely, pessimistic, dependencies
+- "reasoning": A brief explanation of why these tasks are important
+
+Rules:
+1. IDs must be unique and NOT conflict with existing task IDs. Use format "s1", "s2", etc.
+2. Dependencies can reference existing task IDs or other suggested task IDs.
+3. Ensure the dependency graph remains a DAG (no cycles).
+4. Suggestions should complement the existing tasks, not duplicate them.
+5. Each suggested task should have a clear rationale.
+6. Use reasonable time estimates based on the project context.
+`;
+
+export interface SuggestTasksResult {
+    suggestions: PertTask[];
+    reasoning: string;
+}
+
+export async function suggestTasks(
+    projectDescription: string,
+    currentTasks: PertTask[],
+    apiKey: string,
+    model: string = "gpt-4o",
+    context?: ProjectContext
+): Promise<SuggestTasksResult> {
+    if (!apiKey) {
+        throw new Error("API Key is required");
+    }
+
+    const messages: { role: string; content: string }[] = [
+        { role: "system", content: SUGGEST_TASKS_PROMPT },
+        {
+            role: "user",
+            content: `Project Description: ${projectDescription}
+
+Current Tasks:
+${JSON.stringify(currentTasks, null, 2)}
+
+${context ? `
+Filesystem Context:
+Structure:
+${context.structure.join('\n')}
+
+File Contents:
+${Object.entries(context.fileContents).map(([path, content]) => `--- ${path} ---\n${content}`).join('\n\n')}
+` : ''}`
+        }
+    ];
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+            model,
+            messages,
+            temperature: 0.7,
+            response_format: { type: "json_object" }
+        })
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error?.message || 'Failed to suggest tasks');
+    }
+
+    const data = await response.json();
+    const content = data.choices[0].message.content;
+    return JSON.parse(content) as SuggestTasksResult;
+}
+
+export async function mockSuggestTasks(
+    currentTasks: PertTask[]
+): Promise<SuggestTasksResult> {
+    await new Promise(resolve => setTimeout(resolve, 1200));
+
+    const existingIds = new Set(currentTasks.map(t => t.id));
+    const lastId = currentTasks.length > 0 ? currentTasks[currentTasks.length - 1].id : '0';
+
+    return {
+        suggestions: [
+            {
+                id: 's1',
+                name: 'Risk Assessment',
+                optimistic: 1,
+                likely: 2,
+                pessimistic: 3,
+                dependencies: existingIds.has('1') ? ['1'] : [],
+                category: 'Planning'
+            },
+            {
+                id: 's2',
+                name: 'Documentation & Knowledge Transfer',
+                optimistic: 1,
+                likely: 2,
+                pessimistic: 4,
+                dependencies: [lastId],
+                category: 'Documentation'
+            },
+            {
+                id: 's3',
+                name: 'Stakeholder Review',
+                optimistic: 1,
+                likely: 1,
+                pessimistic: 2,
+                dependencies: ['s2'],
+                category: 'Review'
+            },
+        ],
+        reasoning: 'These tasks cover common gaps: risk planning, documentation, and stakeholder sign-off are frequently overlooked but critical for project success.'
+    };
+}
+
+// ========================
+// Split Task into Subtasks
+// ========================
+
+const SPLIT_TASK_PROMPT = `
+You are an expert Project Manager helping decompose a high-level task into smaller, actionable subtasks.
+You will receive one task to split, along with the full project context (description and other tasks).
+
+Your job is to break the given task into 2-5 smaller subtasks that together accomplish the same work.
+
+Output MUST be a valid JSON object with:
+- "subtasks": An array of task objects, each with: id, name, category, optimistic, likely, pessimistic, dependencies
+- "summary": A brief description of how you broke down the task
+
+Rules:
+1. Subtask IDs must use the format "split1", "split2", etc.
+2. Subtasks should be sequentially dependent by default (split1 -> split2 -> split3), unless parallel work makes sense.
+3. The FIRST subtask should have NO dependencies within the subtask set (it will inherit the parent's incoming dependencies).
+4. The total estimated time of all subtasks should be roughly equal to the original task's time.
+5. Keep the same category as the parent task, or use a more specific sub-category.
+6. Subtask names should be concrete and action-oriented.
+7. Do NOT include the original task — only return the new subtasks that replace it.
+`;
+
+export interface SplitTaskResult {
+    subtasks: PertTask[];
+    summary: string;
+}
+
+export async function splitTask(
+    taskToSplit: PertTask,
+    projectDescription: string,
+    allTasks: PertTask[],
+    apiKey: string,
+    model: string = "gpt-4o"
+): Promise<SplitTaskResult> {
+    if (!apiKey) {
+        throw new Error("API Key is required");
+    }
+
+    const messages: { role: string; content: string }[] = [
+        { role: "system", content: SPLIT_TASK_PROMPT },
+        {
+            role: "user",
+            content: `Task to Split:
+${JSON.stringify(taskToSplit, null, 2)}
+
+Project Description: ${projectDescription}
+
+All Current Tasks (for context):
+${JSON.stringify(allTasks, null, 2)}`
+        }
+    ];
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+            model,
+            messages,
+            temperature: 0.7,
+            response_format: { type: "json_object" }
+        })
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error?.message || 'Failed to split task');
+    }
+
+    const data = await response.json();
+    const content = data.choices[0].message.content;
+    return JSON.parse(content) as SplitTaskResult;
+}
+
+export async function mockSplitTask(
+    taskToSplit: PertTask
+): Promise<SplitTaskResult> {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    const baseLikely = Math.max(1, Math.round(taskToSplit.likely / 3));
+
+    return {
+        subtasks: [
+            {
+                id: 'split1',
+                name: `Research for ${taskToSplit.name}`,
+                optimistic: Math.max(1, baseLikely - 1),
+                likely: baseLikely,
+                pessimistic: baseLikely + 2,
+                dependencies: [],
+                category: taskToSplit.category || 'Uncategorized'
+            },
+            {
+                id: 'split2',
+                name: `Execute ${taskToSplit.name}`,
+                optimistic: baseLikely,
+                likely: baseLikely + 1,
+                pessimistic: baseLikely + 3,
+                dependencies: ['split1'],
+                category: taskToSplit.category || 'Uncategorized'
+            },
+            {
+                id: 'split3',
+                name: `Review & Finalize ${taskToSplit.name}`,
+                optimistic: 1,
+                likely: 1,
+                pessimistic: 2,
+                dependencies: ['split2'],
+                category: taskToSplit.category || 'Uncategorized'
+            },
+        ],
+        summary: `Split "${taskToSplit.name}" into 3 sequential subtasks: research, execution, and review.`
+    };
+}
