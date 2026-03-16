@@ -120,7 +120,27 @@ export default function GraphView({ pertNodes, calendarDates, completedTaskIds, 
         const layouted = getLayoutedElements(initialNodes, initialEdges);
         setNodes(layouted.nodes);
         setEdges(layouted.edges);
-    }, [pertNodes, calendarDates, completedTaskIds, setNodes, setEdges]);
+    }, [pertNodes, calendarDates, setNodes, setEdges]);
+
+    // Update node data in-place when completion status changes (no re-layout)
+    useEffect(() => {
+        if (!completedTaskIds) return;
+        setNodes(prev => prev.map(node => {
+            const isCompleted = completedTaskIds.has(node.id);
+            const wasCompleted = (node.data as any)?.isCompleted ?? false;
+            if (isCompleted === wasCompleted) return node;
+            return {
+                ...node,
+                data: {
+                    ...node.data,
+                    isCompleted,
+                    onUncomplete: isCompleted && onUncompleteTask
+                        ? () => onUncompleteTask(node.id)
+                        : undefined,
+                },
+            };
+        }));
+    }, [completedTaskIds, onUncompleteTask, setNodes]);
 
     // Show empty state if no nodes
     if (!pertNodes || pertNodes.length === 0) {
