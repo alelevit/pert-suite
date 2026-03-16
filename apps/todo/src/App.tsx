@@ -1298,6 +1298,9 @@ function App() {
                             setAutoLoadProjectId(projectId);
                             setView('pert');
                         }}
+                        onUncomplete={task.completed ? async () => {
+                            await handleUncomplete(task.id);
+                        } : undefined}
                     />
                 );
             })()}
@@ -1923,13 +1926,14 @@ function TaskItem({ task, subtasks, onComplete, onDelete, onCyclePriority, onAdd
 /*              TASK DETAIL PANEL                      */
 /* ═══════════════════════════════════════════════════ */
 
-function TaskDetailPanel({ task, allTodos, sections, onClose, onUpdate, onComplete, onDelete, onAddSubtask, onSubtaskComplete, onSubtaskDelete, onGoToPert }: {
+function TaskDetailPanel({ task, allTodos, sections, onClose, onUpdate, onComplete, onUncomplete, onDelete, onAddSubtask, onSubtaskComplete, onSubtaskDelete, onGoToPert }: {
     task: TodoTask;
     allTodos: TodoTask[];
     sections: string[];
     onClose: () => void;
     onUpdate: (updates: Partial<TodoTask>) => Promise<void>;
     onComplete: () => Promise<void>;
+    onUncomplete?: () => Promise<void>;
     onDelete: () => Promise<void>;
     onAddSubtask: (title: string) => Promise<void>;
     onSubtaskComplete: (id: string) => void;
@@ -2055,6 +2059,41 @@ function TaskDetailPanel({ task, allTodos, sections, onClose, onUpdate, onComple
                     </button>
                 </div>
             </div>
+
+            {/* Uncomplete bar — shown when task is already completed */}
+            {task.completed && onUncomplete && (
+                <div style={{
+                    padding: '6px 16px',
+                    borderBottom: '1px solid var(--border-color)',
+                    background: 'rgba(34, 197, 94, 0.06)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexShrink: 0,
+                }}>
+                    <span style={{ fontSize: '11px', color: 'var(--accent-success)', fontWeight: 500 }}>
+                        ✓ Completed {task.completedAt ? new Date(task.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}
+                    </span>
+                    <button
+                        onClick={onUncomplete}
+                        style={{
+                            padding: '3px 10px',
+                            borderRadius: '5px',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            color: 'var(--text-muted)',
+                            background: 'rgba(255,255,255,0.08)',
+                            border: '1px solid var(--border-color)',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                        }}
+                    >
+                        ↩ Mark Incomplete
+                    </button>
+                </div>
+            )}
 
             {/* Scrollable Content */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '20px 16px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
