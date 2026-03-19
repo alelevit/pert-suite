@@ -476,12 +476,15 @@ app.get('/api/todos/today', async (_req, res) => {
                     completed = false AND (
                         scheduled_date <= $1
                         OR due_date <= $1
-                        OR (recurrence IS NOT NULL AND recurrence->>'pattern' = 'daily')
-                        ${isWeekday ? `OR (recurrence IS NOT NULL AND recurrence->>'pattern' = 'weekdays')` : ''}
+                        OR (recurrence IS NOT NULL AND recurrence->>'pattern' = 'daily'
+                            AND (scheduled_date IS NULL OR scheduled_date <= $1))
+                        ${isWeekday ? `OR (recurrence IS NOT NULL AND recurrence->>'pattern' = 'weekdays'
+                            AND (scheduled_date IS NULL OR scheduled_date <= $1))` : ''}
                         OR (
                             recurrence IS NOT NULL
                             AND recurrence->>'pattern' = 'specific-day'
                             AND recurrence->'daysOfWeek' @> $3::jsonb
+                            AND (scheduled_date IS NULL OR scheduled_date <= $1)
                         )
                     )
                 )
