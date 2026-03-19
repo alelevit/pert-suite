@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { TodoTask } from '@pert-suite/shared';
 import { apiGetTodos, apiGetTodayTodos, apiGetUpcomingTodos, apiGetSections, apiCreateTodo, apiCompleteTodo, apiDeleteTodo, apiUpdateTodo, apiAnalyzeTodos, mockAnalyzeTodos, getCachedTodos, getCachedAllTodos, getCachedSections, apiGetPertImpact } from './services/todoApi';
 import type { PertImpactResult } from './services/todoApi';
+import { apiLoadProject, apiUpdateProject } from './services/projectApi';
+import type { PertTask } from './logic/pert';
 import { Sun, Inbox, Calendar, ChevronRight, ChevronDown, Plus, Check, Trash2, RotateCcw, Flag, Clock, Loader, Tag, X, Settings, Sparkles, Send, HelpCircle, Edit2, Menu, BarChart3 } from 'lucide-react';
 import PertView from './components/pert/PertView';
 
@@ -1963,6 +1965,11 @@ function TaskDetailPanel({ task, allTodos, sections, onClose, onUpdate, onComple
     const [warningLoading, setWarningLoading] = useState(false);
     const warningTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
+    // PERT dependency editing
+    const [pertProjectTasks, setPertProjectTasks] = useState<PertTask[]>([]);
+    const [pertDepsExpanded, setPertDepsExpanded] = useState(false);
+    const [pertDepsLoading, setPertDepsLoading] = useState(false);
+
     // Sync state when task changes
     useEffect(() => {
         setEditTitle(task.title);
@@ -1979,6 +1986,20 @@ function TaskDetailPanel({ task, allTodos, sections, onClose, onUpdate, onComple
             setEditRecurrence(task.recurrence.pattern);
         }
     }, [task.id, task.title, task.description, task.dueDate, task.scheduledDate, task.priority, task.section, task.recurrence]);
+
+    // Fetch PERT project tasks for dependency editing
+    useEffect(() => {
+        if (task.pertProjectId && task.pertTaskId) {
+            setPertDepsLoading(true);
+            apiLoadProject(task.pertProjectId).then(project => {
+                if (project && Array.isArray(project.tasks)) {
+                    setPertProjectTasks(project.tasks as PertTask[]);
+                }
+            }).catch(() => {}).finally(() => setPertDepsLoading(false));
+        } else {
+            setPertProjectTasks([]);
+        }
+    }, [task.pertProjectId, task.pertTaskId]);
 
     // Escape key to close
     useEffect(() => {
@@ -2407,6 +2428,102 @@ function TaskDetailPanel({ task, allTodos, sections, onClose, onUpdate, onComple
                             >
                                 📊 Go to Chart →
                             </button>
+                        )}
+
+                        {/* PERT Dependencies Editor */}
+                        {task.pertProjectId && task.pertTaskId && (
+                            <div style={{ marginTop: '12px', borderTop: '1px solid rgba(99, 102, 241, 0.15)', paddingTop: '12px' }}>
+                                <button
+                                    onClick={() => setPertDepsExpanded(!pertDepsExpanded)}
+                                    style={{
+                                        background: 'transparent', border: 'none', cursor: 'pointer',
+                                        display: 'flex', alignItems: 'center', gap: '6px', width: '100%',
+                                        padding: 0, fontSize: '11px', fontWeight: 600,
+                                        color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.5px',
+                                    }}
+                                >
+                                    {pertDepsExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                                    Dependencies
+                                    {(() => {
+                                        const currentTask = pertProjectTasks.find(t => t.id === task.pertTaskId);
+                                        const depCount = currentTask?.dependencies?.length || 0;
+                                        return depCount > 0 ? ` (${depCount})` : '';
+                                    })()}
+                                </button>
+
+                                {pertDepsExpanded && (
+                                    <div style={{ marginTop: '8px' }}>
+                                        {pertDepsLoading ? (
+                                            <div style={{ fontSize: '12px', color: 'var(--text-muted)', padding: '8px 0' }}>
+                                                <Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> Loading...
+                                            </div>
+                                        ) : pertProjectTasks.filter(t => t.id !== task.pertTaskId).length === 0 ? (
+                                            <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic', padding: '4px 0' }}>
+                                                No other tasks in this project
+                                            </div>
+                                        ) : (
+                                            <div style={{
+                                                maxHeight: '180px', overflowY: 'auto',
+                                                background: 'rgba(0,0,0,0.15)', borderRadius: '6px', padding: '6px',
+                                            }}>
+                                                {pertProjectTasks.filter(t => t.id !== task.pertTaskId).map(siblingTask => {
+                                                    const currentTask = pertProjectTasks.find(t => t.id === task.pertTaskId);
+                                                    const isDependent = currentTask?.dependencies?.includes(siblingTask.id) || false;
+                                                    return (
+                                                        <label
+                                                            key={siblingTask.id}
+                                                            style={{
+                                                                display: 'flex', alignItems: 'center', gap: '8px',
+                                                                padding: '5px 8px', cursor: 'pointer', borderRadius: '4px',
+                                                                background: isDependent ? 'rgba(99, 102, 241, 0.12)' : 'transparent',
+                                                                marginBottom: '2px', transition: 'background 0.15s',
+                                                            }}
+                                                            onMouseEnter={e => { if (!isDependent) e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+                                                            onMouseLeave={e => { if (!isDependent) e.currentTarget.style.background = 'transparent'; }}
+                                                        >
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={isDependent}
+                                                                onChange={async (e) => {
+                                                                    const checked = e.target.checked;
+                                                                    // Update local state
+                                                                    const updatedTasks = pertProjectTasks.map(t => {
+                                                                        if (t.id === task.pertTaskId) {
+                                                                            const newDeps = checked
+                                                                                ? [...(t.dependencies || []), siblingTask.id]
+                                                                                : (t.dependencies || []).filter(id => id !== siblingTask.id);
+                                                                            return { ...t, dependencies: newDeps };
+                                                                        }
+                                                                        return t;
+                                                                    });
+                                                                    setPertProjectTasks(updatedTasks);
+                                                                    // Persist to server
+                                                                    try {
+                                                                        await apiUpdateProject(task.pertProjectId!, { tasks: updatedTasks } as any);
+                                                                    } catch (err) {
+                                                                        console.error('Failed to update PERT dependencies:', err);
+                                                                    }
+                                                                }}
+                                                                style={{ cursor: 'pointer', accentColor: 'var(--accent-primary)' }}
+                                                            />
+                                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                                <div style={{ fontSize: '12px', color: 'var(--text-main)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                                    {siblingTask.name}
+                                                                </div>
+                                                                {siblingTask.category && (
+                                                                    <div style={{ fontSize: '10px', color: 'var(--text-faint)' }}>
+                                                                        {siblingTask.category}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
                         )}
                     </div>
                 )}
