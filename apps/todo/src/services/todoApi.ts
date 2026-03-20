@@ -15,6 +15,53 @@ const CACHE_KEYS = {
     sections: 'todo_cache_sections',
 } as const;
 
+// ========================
+// Cross-Tab BroadcastChannel
+// ========================
+
+const CHANNEL_NAME = 'todo_sync';
+let broadcastChannel: BroadcastChannel | null = null;
+try {
+    broadcastChannel = new BroadcastChannel(CHANNEL_NAME);
+} catch {
+    // BroadcastChannel not supported — cross-tab sync disabled
+}
+
+type CacheSyncListener = () => void;
+const syncListeners: CacheSyncListener[] = [];
+
+/** Subscribe to cross-tab cache invalidation events. Returns unsubscribe fn. */
+export function onCrossTabSync(listener: CacheSyncListener): () => void {
+    syncListeners.push(listener);
+    return () => {
+        const idx = syncListeners.indexOf(listener);
+        if (idx >= 0) syncListeners.splice(idx, 1);
+    };
+}
+
+if (broadcastChannel) {
+    broadcastChannel.onmessage = (event) => {
+        if (event.data?.type === 'cache-updated') {
+            // Notify all listeners (i.e. trigger refreshTodos in App)
+            syncListeners.forEach(fn => fn());
+        }
+    };
+}
+
+/** Broadcast to sibling tabs that data has changed */
+function notifySiblingTabs(): void {
+    try {
+        broadcastChannel?.postMessage({ type: 'cache-updated' });
+    } catch {
+        // Channel closed or unavailable — ignore
+    }
+}
+
+/** Call after any mutation (create/update/delete/complete) to notify other tabs */
+export function notifyCacheMutation(): void {
+    notifySiblingTabs();
+}
+
 function saveToCache(key: string, data: unknown): void {
     try {
         localStorage.setItem(key, JSON.stringify(data));
@@ -87,7 +134,9 @@ export async function apiCreateTodo(todo: Partial<TodoTask>): Promise<TodoTask> 
         body: JSON.stringify(todo),
     });
     if (!res.ok) throw new Error('Failed to create todo');
-    return res.json();
+    const data = await res.json();
+    notifySiblingTabs();
+    return data;
 }
 
 export async function apiUpdateTodo(id: string, updates: Partial<TodoTask>): Promise<TodoTask> {
@@ -97,18 +146,23 @@ export async function apiUpdateTodo(id: string, updates: Partial<TodoTask>): Pro
         body: JSON.stringify(updates),
     });
     if (!res.ok) throw new Error('Failed to update todo');
-    return res.json();
+    const data = await res.json();
+    notifySiblingTabs();
+    return data;
 }
 
 export async function apiDeleteTodo(id: string): Promise<void> {
     const res = await fetch(`${API_BASE}/todos/${id}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('Failed to delete todo');
+    notifySiblingTabs();
 }
 
 export async function apiCompleteTodo(id: string): Promise<{ completed: TodoTask; next?: TodoTask }> {
     const res = await fetch(`${API_BASE}/todos/${id}/complete`, { method: 'POST' });
     if (!res.ok) throw new Error('Failed to complete todo');
-    return res.json();
+    const data = await res.json();
+    notifySiblingTabs();
+    return data;
 }
 
 export async function apiGetUpcomingTodos(): Promise<TodoTask[]> {

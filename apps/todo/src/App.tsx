@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { TodoTask } from '@pert-suite/shared';
-import { apiGetTodos, apiGetTodayTodos, apiGetUpcomingTodos, apiGetSections, apiCreateTodo, apiCompleteTodo, apiDeleteTodo, apiUpdateTodo, apiAnalyzeTodos, mockAnalyzeTodos, getCachedTodos, getCachedAllTodos, getCachedSections, apiGetPertImpact } from './services/todoApi';
+import { apiGetTodos, apiGetTodayTodos, apiGetUpcomingTodos, apiGetSections, apiCreateTodo, apiCompleteTodo, apiDeleteTodo, apiUpdateTodo, apiAnalyzeTodos, mockAnalyzeTodos, getCachedTodos, getCachedAllTodos, getCachedSections, apiGetPertImpact, onCrossTabSync } from './services/todoApi';
 import type { PertImpactResult } from './services/todoApi';
 import { apiLoadProject, apiUpdateProject } from './services/projectApi';
 import type { PertTask } from './logic/pert';
@@ -255,6 +255,7 @@ function App() {
         const cached = getCachedTodos('today');
         return !cached || cached.length === 0;
     });
+    const [refreshing, setRefreshing] = useState(false);
     const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
     const [pertRefreshKey, setPertRefreshKey] = useState(0);
     const [autoLoadProjectId, setAutoLoadProjectId] = useState<string | null>(null);
@@ -307,6 +308,8 @@ function App() {
         try {
             // Only show loading spinner if we have no data at all
             setLoading(prev => todos.length === 0 ? true : prev);
+            // Show subtle refreshing indicator if we have cached data
+            if (todos.length > 0) setRefreshing(true);
 
             // Determine the view-specific fetch
             let viewFetchPromise: Promise<TodoTask[]>;
@@ -340,6 +343,7 @@ function App() {
             console.error('Failed to load todos:', e);
         } finally {
             setLoading(false);
+            setRefreshing(false);
         }
     }, [view, sectionFilter]);
 
@@ -350,6 +354,14 @@ function App() {
 
     useEffect(() => {
         refreshTodos();
+    }, [refreshTodos]);
+
+    // Cross-tab sync: when another tab makes changes, refresh our data
+    useEffect(() => {
+        const unsub = onCrossTabSync(() => {
+            refreshTodos();
+        });
+        return unsub;
     }, [refreshTodos]);
 
     /* ─── Global Hotkeys ─── */
@@ -864,6 +876,21 @@ function App() {
                             </button>
                         </div>
                     </header>
+
+                    {/* Refresh indicator */}
+                    {refreshing && (
+                        <div style={{
+                            height: '2px',
+                            background: 'linear-gradient(90deg, transparent, var(--accent-primary), transparent)',
+                            animation: 'refreshSlide 1.2s ease-in-out infinite',
+                        }} />
+                    )}
+                    <style>{`
+                        @keyframes refreshSlide {
+                            0% { transform: translateX(-100%); }
+                            100% { transform: translateX(100%); }
+                        }
+                    `}</style>
 
                     {/* Task List */}
                     <div style={{ flex: 1, overflowY: 'auto', padding: '24px 32px' }}>

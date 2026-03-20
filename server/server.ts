@@ -1114,6 +1114,15 @@ initDb().then(() => {
         console.log(`📁 PERT Suite API running at http://0.0.0.0:${PORT}`);
         console.log(`   Database: PostgreSQL (Neon)`);
     });
+
+    // Keep Neon serverless DB warm — prevent compute suspension (every 4 min)
+    setInterval(async () => {
+        try {
+            await pool.query('SELECT 1');
+        } catch (err) {
+            console.warn('DB keep-alive failed:', err);
+        }
+    }, 4 * 60 * 1000);
 }).catch(err => {
     console.error('Failed to initialize database:', err);
     process.exit(1);
