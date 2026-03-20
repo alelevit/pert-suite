@@ -163,23 +163,23 @@ function parseNaturalInput(raw: string): ParsedInput {
     }
 
     // "today" / "tod" — requires trailing space to avoid premature firing
-    if (/(?:^|\s)(today|tod)(?=\s)/i.test(text)) {
+    if (/(?:^|\s)(today|tod)(?=\s|$)/i.test(text)) {
         detectedDate = fmt(today);
         detectedDateLabel = 'Today';
-        text = text.replace(/(?:^|\s)(today|tod)(?=\s)/i, ' ').trim();
+        text = text.replace(/(?:^|\s)(today|tod)(?=\s|$)/i, ' ').trim();
     }
     // "tomorrow" / "tom" / "tmrw" / "tmr"
-    else if (/(?:^|\s)(tomorrow|tom|tmrw|tmr)(?=\s)/i.test(text)) {
+    else if (/(?:^|\s)(tomorrow|tom|tmrw|tmr)(?=\s|$)/i.test(text)) {
         const d = new Date(today);
         d.setDate(d.getDate() + 1);
         detectedDate = fmt(d);
         detectedDateLabel = 'Tomorrow';
-        text = text.replace(/(?:^|\s)(tomorrow|tom|tmrw|tmr)(?=\s)/i, ' ').trim();
+        text = text.replace(/(?:^|\s)(tomorrow|tom|tmrw|tmr)(?=\s|$)/i, ' ').trim();
     }
     // Day names: "monday", "wed", etc. (only if NOT part of a recurrence "every" match)
     else if (!detectedRecurrence) {
         for (const [name, dayNum] of Object.entries(DAY_NAMES)) {
-            const regex = new RegExp(`(?:^|\\s)(${name})(?=\\s)`, 'i');
+            const regex = new RegExp(`(?:^|\\s)(${name})(?=\\s|$)`, 'i');
             if (regex.test(text)) {
                 const d = new Date(today);
                 let diff = dayNum - d.getDay();
@@ -197,7 +197,7 @@ function parseNaturalInput(raw: string): ParsedInput {
     // Requires digit FOLLOWED by whitespace or end — prevents premature match while still typing the day
     if (!detectedDate) {
         for (const [name, monthNum] of Object.entries(MONTHS)) {
-            const regex = new RegExp(`(?:^|\\s)(${name})\\s+(\\d{1,2})(?=\\s)`, 'i');
+            const regex = new RegExp(`(?:^|\\s)(${name})\\s+(\\d{1,2})(?=\\s|$)`, 'i');
             const m = text.match(regex);
             if (m) {
                 const day = parseInt(m[2], 10);
