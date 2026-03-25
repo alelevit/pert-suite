@@ -665,7 +665,7 @@ function App() {
                 {/* Logo */}
                 <div style={{ padding: '0 20px 24px', borderBottom: '1px solid var(--border-color)', marginBottom: '8px' }}>
                     <h1 style={{ fontSize: '18px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span style={{ fontSize: '22px' }}>✅</span>
+                        <span style={{ fontSize: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Check size={18} color="var(--accent-primary)" strokeWidth={3} /></span>
                         <span>Todo</span>
                     </h1>
                     <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>PERT Suite</p>
