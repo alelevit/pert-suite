@@ -5,13 +5,16 @@
   "type": "module",
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "server"
   ],
   "scripts": {
     "dev": "concurrently --names api,pert,todo -c blue,green,magenta \"npm run dev:api\" \"npm run dev:pert\" \"npm run dev:todo\"",
     "dev:api": "tsx watch server/server.ts",
     "dev:pert": "npm run dev --workspace=apps/pert-chart",
-    "dev:todo": "npm run dev --workspace=apps/todo"
+    "dev:todo": "npm run dev --workspace=apps/todo",
+    "build:all": "npm run build --workspace=apps/pert-chart && npm run build --workspace=apps/todo && cd server && npm run build",
+    "start": "cd server && npm start"
   },
   "dependencies": {
     "cors": "^2.8.6",

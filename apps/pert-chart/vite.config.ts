@@ -4,11 +4,12 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  base: '/pert',
   server: {
     port: 5175,
     proxy: {
       '/api': {
-        target: 'https://pert-suite-server.onrender.com',
+        target: 'http://localhost:3001',
         changeOrigin: true,
       }
     }

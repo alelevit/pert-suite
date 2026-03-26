@@ -22,12 +22,13 @@ export default defineConfig({
             'reactflow': path.resolve(rootDir, 'node_modules/reactflow'),
         },
     },
+    base: '/todo',
     server: {
         host: true,
         port: 5176,
         proxy: {
             '/api': {
-                target: 'https://pert-suite-server.onrender.com',
+                target: 'http://localhost:3001',
                 changeOrigin: true,
             }
         }

@@ -1,6 +1,10 @@
 import express from 'express';
 import cors from 'cors';
 import pg from 'pg';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
@@ -1106,13 +1110,42 @@ app.delete('/api/projects/:id/linked-todos', async (req, res) => {
 });
 
 // ──────────────────────────────────────
+// Static frontend serving
+// ──────────────────────────────────────
+
+// __dirname is server/dist when compiled, so go up two levels to repo root
+const repoRoot = path.resolve(__dirname, '..', '..');
+const todoDistDir = path.join(repoRoot, 'apps', 'todo', 'dist');
+const pertDistDir = path.join(repoRoot, 'apps', 'pert-chart', 'dist');
+
+// Serve todo app at /todo
+app.use('/todo', express.static(todoDistDir));
+app.get('/todo/{*path}', (_req, res) => {
+    res.sendFile(path.join(todoDistDir, 'index.html'));
+});
+
+// Serve pert chart app at /pert
+app.use('/pert', express.static(pertDistDir));
+app.get('/pert/{*path}', (_req, res) => {
+    res.sendFile(path.join(pertDistDir, 'index.html'));
+});
+
+// Root redirects to todo app
+app.get('/', (_req, res) => {
+    res.redirect('/todo');
+});
+
+// ──────────────────────────────────────
 // Start
 // ──────────────────────────────────────
 
 initDb().then(() => {
     app.listen(PORT, '0.0.0.0', () => {
-        console.log(`📁 PERT Suite API running at http://0.0.0.0:${PORT}`);
-        console.log(`   Database: PostgreSQL (Neon)`);
+        console.log(`📁 PERT Suite running at http://0.0.0.0:${PORT}`);
+        console.log(`   Todo app:  /todo`);
+        console.log(`   PERT app:  /pert`);
+        console.log(`   API:       /api`);
+        console.log(`   Database:  PostgreSQL (Neon)`);
     });
 
     // Keep Neon serverless DB warm — prevent compute suspension (every 4 min)
