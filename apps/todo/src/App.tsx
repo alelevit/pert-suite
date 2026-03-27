@@ -101,6 +101,7 @@ interface ParsedInput {
     detectedDateLabel: string | null;
     detectedPriority: 'p1' | 'p2' | 'p3' | null;
     detectedRecurrence: DetectedRecurrence | null;
+    isDueDate: boolean;
 }
 
 function parseNaturalInput(raw: string): ParsedInput {
@@ -109,9 +110,16 @@ function parseNaturalInput(raw: string): ParsedInput {
     let detectedDateLabel: string | null = null;
     let detectedPriority: 'p1' | 'p2' | 'p3' | null = null;
     let detectedRecurrence: DetectedRecurrence | null = null;
+    let isDueDate = false;
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+
+    // "due" keyword: strip it and flag the date as a due date
+    if (/(?:^|\s)due(?=\s|$)/i.test(text)) {
+        isDueDate = true;
+        text = text.replace(/(?:^|\s)due(?=\s|$)/i, ' ').trim();
+    }
 
     // Priority: match p1, p2, p3 as standalone tokens
     const prioMatch = text.match(/(?:^|\s)(p[123])(?:\s|$)/i);
@@ -220,6 +228,7 @@ function parseNaturalInput(raw: string): ParsedInput {
         detectedDateLabel,
         detectedPriority,
         detectedRecurrence,
+        isDueDate,
     };
 }
 
@@ -272,7 +281,7 @@ function App() {
     const titleInputRef = useRef<HTMLInputElement>(null);
 
     // Parsed from natural language
-    const [parsedInfo, setParsedInfo] = useState<ParsedInput>({ cleanTitle: '', detectedDate: null, detectedDateLabel: null, detectedPriority: null, detectedRecurrence: null });
+    const [parsedInfo, setParsedInfo] = useState<ParsedInput>({ cleanTitle: '', detectedDate: null, detectedDateLabel: null, detectedPriority: null, detectedRecurrence: null, isDueDate: false });
 
     // Auto-categorization
     const [suggestedSection, setSuggestedSection] = useState<string | null>(null);
@@ -403,7 +412,7 @@ function App() {
 
     useEffect(() => {
         if (!newTitle.trim()) {
-            setParsedInfo({ cleanTitle: '', detectedDate: null, detectedDateLabel: null, detectedPriority: null, detectedRecurrence: null });
+            setParsedInfo({ cleanTitle: '', detectedDate: null, detectedDateLabel: null, detectedPriority: null, detectedRecurrence: null, isDueDate: false });
             setSuggestedSection(null);
             return;
         }
@@ -438,16 +447,31 @@ function App() {
         const title = parsed.cleanTitle || newTitle.trim();
         if (!title) return;
 
-        const effectiveDueDate = parsed.detectedDate || newDueDate || undefined;
-        const isFutureDue = effectiveDueDate && effectiveDueDate > getToday();
+        const parsedDate = parsed.detectedDate;
+        const manualDueDate = newDueDate || undefined;
 
         const todo: Partial<TodoTask> = {
             title,
             section: newSection,
             priority: parsed.detectedPriority || newPriority,
-            scheduledDate: (view === 'today' && !isFutureDue) ? getToday() : undefined,
-            dueDate: effectiveDueDate,
         };
+
+        if (parsedDate) {
+            // Inline date detected: "due" keyword → dueDate, otherwise → scheduledDate
+            if (parsed.isDueDate) {
+                todo.dueDate = parsedDate;
+            } else {
+                todo.scheduledDate = parsedDate;
+            }
+        } else if (manualDueDate) {
+            // Manual date picker → dueDate (existing behavior)
+            todo.dueDate = manualDueDate;
+        }
+
+        // If on "today" view and no scheduled date set yet, schedule for today
+        if (view === 'today' && !todo.scheduledDate && !todo.dueDate) {
+            todo.scheduledDate = getToday();
+        }
         // Apply recurrence — from natural language detection or dropdown
         if (parsed.detectedRecurrence) {
             todo.recurrence = {
@@ -468,7 +492,7 @@ function App() {
         setNewDueDate('');
         setNewRecurrence('');
         setSuggestedSection(null);
-        setParsedInfo({ cleanTitle: '', detectedDate: null, detectedDateLabel: null, detectedPriority: null, detectedRecurrence: null });
+        setParsedInfo({ cleanTitle: '', detectedDate: null, detectedDateLabel: null, detectedPriority: null, detectedRecurrence: null, isDueDate: false });
         setQuickAddOpen(false);
         await refreshTodos();
     };
@@ -1034,7 +1058,7 @@ function App() {
                                                     display: 'flex', alignItems: 'center', gap: '4px',
                                                     background: 'rgba(56, 189, 248, 0.15)', padding: '2px 8px', borderRadius: '4px',
                                                 }}>
-                                                    📅 {parsedInfo.detectedDateLabel}
+                                                    {parsedInfo.isDueDate ? '⏰' : '📅'} {parsedInfo.isDueDate ? 'Due' : 'Scheduled'}: {parsedInfo.detectedDateLabel}
                                                     <button
                                                         onClick={() => { setNewDueDate(''); setParsedInfo(p => ({ ...p, detectedDate: null, detectedDateLabel: null })); }}
                                                         style={{ background: 'none', border: 'none', color: '#7dd3fc', cursor: 'pointer', padding: '0 2px', fontSize: '11px' }}
