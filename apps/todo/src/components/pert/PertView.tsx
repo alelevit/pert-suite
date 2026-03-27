@@ -1,20 +1,16 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import type { TodoTask } from '@pert-suite/shared';
 import type { PertTask } from '../../logic/pert';
-import { calculateCPM, createEmptyTask, computeCalendarDates } from '../../logic/pert';
+import { calculateCPM, computeCalendarDates } from '../../logic/pert';
 import type { CalendarRange } from '../../logic/pert';
 import GraphView from './GraphView';
 import TaskReviewPage from './TaskReviewPage';
 import ProjectManager from './ProjectManager';
-import { Settings, Loader2, FolderOpen, Save, ListChecks, XCircle, PanelLeftClose, PanelLeft, FilePlus2, MessageSquare, Send, CalendarDays, Link2, Unlink, Wrench, Sparkles, Scissors, CheckSquare, Square } from 'lucide-react';
+import { Settings, Loader2, FolderOpen, Save, ListChecks, XCircle, FilePlus2, MessageSquare, Send, Link2, Unlink, Wrench, Sparkles, Scissors, CheckSquare, Square } from 'lucide-react';
 import { mockGenerate, generateProjectBreakdown, continueConversation, modifyChartViaChat, mockModifyChart, suggestTasks, mockSuggestTasks, splitTask, mockSplitTask } from '../../services/llm';
 import { scanDirectory, type ProjectContext } from '../../logic/fileScanner';
 import { apiUpdateProject, apiMigrateFromLocalStorage, apiLinkToTodo, apiGetLinkedTodos, apiUnlinkProject, apiLoadProject } from '../../services/projectApi';
 
-function formatShortDate(dateStr: string): string {
-  const d = new Date(dateStr + 'T00:00:00');
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
 
 interface PertViewProps {
   allTodos?: TodoTask[];
@@ -51,10 +47,6 @@ export default function PertView({ allTodos, onOpenTodoTask, onUncompleteTask, p
   const [showProjectManager, setShowProjectManager] = useState(false);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [currentProjectName, setCurrentProjectName] = useState<string>('Untitled Project');
-
-  // Sidebar
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [errorRange, setErrorRange] = useState(25);
 
   // Project Start Date
   const [projectStartDate, setProjectStartDate] = useState<string>('');
@@ -94,10 +86,6 @@ export default function PertView({ allTodos, onOpenTodoTask, onUncompleteTask, p
   }, [chatHistory]);
 
   const pertNodes = useMemo(() => calculateCPM(tasks, projectStartDate || undefined), [tasks, projectStartDate]);
-  const projectDuration = useMemo(() => {
-    return pertNodes.reduce((max, node) => Math.max(max, node.earlyFinish), 0);
-  }, [pertNodes]);
-
   // Compute calendar dates from project start date
   const calendarDates = useMemo<Map<string, CalendarRange>>(() => {
     if (!projectStartDate) return new Map();
@@ -130,33 +118,8 @@ export default function PertView({ allTodos, onOpenTodoTask, onUncompleteTask, p
     return completed;
   }, [allTodos, currentProjectId, isLinked]);
 
-  const updateTask = (id: string, field: keyof PertTask, value: string | number | string[]) => {
-    setTasks(prev => prev.map(t =>
-      t.id === id ? { ...t, [field]: value } : t
-    ));
-  };
 
-  const updateDependencies = (id: string, depsString: string) => {
-    const deps = depsString.split(',').map(s => s.trim()).filter(Boolean);
-    updateTask(id, 'dependencies', deps);
-  };
 
-  const addTask = () => {
-    setTasks(prev => [...prev, createEmptyTask()]);
-  };
-
-  const removeTask = (id: string) => {
-    setTasks(prev => prev.filter(t => t.id !== id));
-  };
-
-  const updateLikelyTime = (id: string, likely: number) => {
-    const range = errorRange / 100;
-    const optimistic = Math.max(1, Math.round(likely * (1 - range)));
-    const pessimistic = Math.round(likely * (1 + range));
-    setTasks(prev => prev.map(t =>
-      t.id === id ? { ...t, likely, optimistic, pessimistic } : t
-    ));
-  };
 
   const handleLinkFolder = async () => {
     try {
@@ -699,174 +662,6 @@ export default function PertView({ allTodos, onOpenTodoTask, onUncompleteTask, p
           {exportStatus}
         </div>
       )}
-
-      {/* Sidebar Toggle Button (when collapsed and NOT linked) */}
-      {!sidebarOpen && !isLinked && (
-        <button
-          onClick={() => setSidebarOpen(true)}
-          style={{
-            position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)',
-            zIndex: 20, background: 'var(--bg-panel)', border: '1px solid var(--border-color)',
-            borderRadius: '8px', padding: '12px 8px', cursor: 'pointer'
-          }}
-          title="Show sidebar"
-        >
-          <PanelLeft size={20} color="var(--text-muted)" />
-        </button>
-      )}
-
-      {/* Sidebar — hidden when project is linked */}
-      {sidebarOpen && !isLinked && (
-        <div style={{
-          width: '400px',
-          borderRight: '1px solid var(--border-color)',
-          background: 'var(--bg-panel)',
-          display: 'flex',
-          flexDirection: 'column',
-          zIndex: 10
-        }}>
-          <div style={{ padding: '16px', borderBottom: '1px solid var(--border-color)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-              <h1 style={{ fontSize: '20px', margin: 0 }}>PERT Generator</h1>
-              <button
-                onClick={() => setSidebarOpen(false)}
-                style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px' }}
-                title="Hide sidebar"
-              >
-                <PanelLeftClose size={18} color="var(--text-muted)" />
-              </button>
-            </div>
-            <p style={{ fontSize: '12px', margin: 0 }}>Estimate: <span style={{ color: 'var(--accent-primary)', fontWeight: 'bold' }}>{projectDuration.toFixed(1)} days</span></p>
-
-            {/* Project Start Date */}
-            <div style={{ marginTop: '12px', padding: '8px', background: 'var(--bg-app)', borderRadius: '6px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <CalendarDays size={12} /> Project Start Date
-                </label>
-                {projectStartDate && (
-                  <span style={{ fontSize: '11px', color: 'var(--accent-success)', fontWeight: 500 }}>
-                    Ends ~{formatShortDate(
-                      (() => {
-                        const d = new Date(projectStartDate + 'T00:00:00');
-                        d.setDate(d.getDate() + Math.round(projectDuration));
-                        return d.toISOString().split('T')[0];
-                      })()
-                    )}
-                  </span>
-                )}
-              </div>
-              <input
-                type="date"
-                value={projectStartDate}
-                onChange={e => setProjectStartDate(e.target.value)}
-                style={{
-                  width: '100%', background: 'var(--bg-card, var(--bg-panel))', border: 'none',
-                  color: 'var(--text-main)', padding: '6px', borderRadius: '4px', fontSize: '13px',
-                }}
-              />
-            </div>
-
-            {/* Error Range Control */}
-            <div style={{ marginTop: '8px', padding: '8px', background: 'var(--bg-app)', borderRadius: '6px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Uncertainty Range</label>
-                <span style={{ fontSize: '12px', color: 'var(--accent-primary)', fontWeight: 'bold' }}>±{errorRange}%</span>
-              </div>
-              <input
-                type="range"
-                min="10"
-                max="50"
-                step="5"
-                value={errorRange}
-                onChange={e => setErrorRange(Number(e.target.value))}
-                style={{ width: '100%', accentColor: 'var(--accent-primary)' }}
-              />
-              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                O = M−{errorRange}%, P = M+{errorRange}%
-              </div>
-            </div>
-          </div>
-
-          <div style={{ overflowY: 'auto', flex: 1, padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {tasks.map((task) => {
-              const dateRange = calendarDates.get(task.id);
-              return (
-                <div key={task.id} style={{
-                  background: 'var(--bg-app)',
-                  padding: '12px',
-                  borderRadius: '8px',
-                  border: '1px solid var(--border-color)'
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                    <input
-                      value={task.name}
-                      onChange={(e) => updateTask(task.id, 'name', e.target.value)}
-                      style={{ background: 'transparent', border: 'none', color: 'var(--text-main)', fontWeight: 'bold', width: '100%' }}
-                    />
-                    <button onClick={() => removeTask(task.id)} style={{ color: 'var(--accent-critical)', fontSize: '16px', padding: '0 8px' }}>×</button>
-                  </div>
-
-                  {/* Date Range Badge (when start date is set) */}
-                  {dateRange && (
-                    <div style={{
-                      display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px',
-                      padding: '4px 8px', background: 'rgba(99, 102, 241, 0.1)',
-                      borderRadius: '4px', fontSize: '11px', color: 'var(--accent-primary)'
-                    }}>
-                      <CalendarDays size={12} />
-                      <span>{formatShortDate(dateRange.startDate)} → {formatShortDate(dateRange.endDate)}</span>
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'flex-end' }}>
-                    <div style={{ flex: 2 }}>
-                      <label style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block' }}>Duration (days)</label>
-                      <input
-                        type="number"
-                        value={task.likely}
-                        onChange={(e) => updateLikelyTime(task.id, Number(e.target.value))}
-                        min="1"
-                        style={{ background: 'var(--bg-card, var(--bg-panel))', border: 'none', color: 'var(--text-main)', padding: '6px', borderRadius: '4px', width: '100%', fontSize: '14px' }}
-                      />
-                    </div>
-                    <div style={{ flex: 3, display: 'flex', gap: '4px' }}>
-                      <div style={{
-                        flex: 1, padding: '6px', background: 'var(--bg-card, var(--bg-panel))', borderRadius: '4px',
-                        fontSize: '11px', textAlign: 'center', color: 'var(--text-muted)'
-                      }}>
-                        <div style={{ fontSize: '9px', marginBottom: '2px' }}>Opt</div>
-                        <span style={{ color: 'var(--accent-success)' }}>{task.optimistic}d</span>
-                      </div>
-                      <div style={{
-                        flex: 1, padding: '6px', background: 'var(--bg-card, var(--bg-panel))', borderRadius: '4px',
-                        fontSize: '11px', textAlign: 'center', color: 'var(--text-muted)'
-                      }}>
-                        <div style={{ fontSize: '9px', marginBottom: '2px' }}>Likely</div>
-                        <span style={{ color: 'var(--accent-primary)' }}>{task.likely}d</span>
-                      </div>
-                      <div style={{
-                        flex: 1, padding: '6px', background: 'var(--bg-card, var(--bg-panel))', borderRadius: '4px',
-                        fontSize: '11px', textAlign: 'center', color: 'var(--text-muted)'
-                      }}>
-                        <div style={{ fontSize: '9px', marginBottom: '2px' }}>Pess</div>
-                        <span style={{ color: 'var(--accent-critical)' }}>{task.pessimistic}d</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block' }}>Depends On (IDs)</label>
-                    <input value={task.dependencies.join(', ')} onChange={(e) => updateDependencies(task.id, e.target.value)} style={{ background: 'var(--bg-card, var(--bg-panel))', border: 'none', color: 'var(--text-main)', padding: '4px', borderRadius: '4px', fontSize: '12px', width: '100%' }} />
-                    <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>ID: {task.id}</div>
-                  </div>
-                </div>
-              );
-            })}
-            <button onClick={addTask} style={{ background: 'var(--bg-card, var(--bg-panel))', padding: '12px', borderRadius: '8px', textAlign: 'center', color: 'var(--text-muted)', border: '1px dashed var(--border-color)' }}>+ Add Manual Task</button>
-          </div>
-        </div>
-      )}
-
 
       {/* Graph Area */}
       <div style={{ flex: 1, background: 'var(--bg-app)', position: 'relative', display: 'flex', flexDirection: 'column' }}>
