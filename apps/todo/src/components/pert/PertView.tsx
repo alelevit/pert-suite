@@ -29,6 +29,14 @@ const defaultExampleTasks: PertTask[] = [
 ];
 
 export default function PertView({ allTodos, onOpenTodoTask, onUncompleteTask, pertRefreshKey, autoLoadProjectId, onProjectLoaded }: PertViewProps) {
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
+  useEffect(() => {
+    const mql = window.matchMedia('(max-width: 768px)');
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mql.addEventListener('change', handler);
+    return () => mql.removeEventListener('change', handler);
+  }, []);
+
   // When navigating from "Go to Chart", start empty so we don't flash default tasks
   const [tasks, setTasks] = useState<PertTask[]>(autoLoadProjectId ? [] : defaultExampleTasks);
   const [isAutoLoading, setIsAutoLoading] = useState(!!autoLoadProjectId);
@@ -757,16 +765,28 @@ export default function PertView({ allTodos, onOpenTodoTask, onUncompleteTask, p
         </div>
       </div>
 
-      {/* Chat Drawer (Right Side) */}
+      {/* Chat Drawer (Right Side on desktop, Bottom Sheet on mobile) */}
       {chatOpen && (
         <div style={{
-          width: '400px',
-          borderLeft: '1px solid var(--border-color)',
+          // Desktop: right sidebar
+          ...(!isMobile ? {
+            width: '400px',
+            borderLeft: '1px solid var(--border-color)',
+          } : {
+            // Mobile: bottom sheet covering bottom ~55% of screen
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: '55%',
+            borderTop: '1px solid var(--border-color)',
+            borderRadius: '16px 16px 0 0',
+          }),
           background: 'var(--bg-panel)',
           display: 'flex',
           flexDirection: 'column',
-          zIndex: 10,
-          animation: 'slideInRight 0.3s ease'
+          zIndex: 20,
+          animation: isMobile ? 'slideInUp 0.3s ease' : 'slideInRight 0.3s ease'
         }}>
           {/* Drawer Header */}
           <div style={{
@@ -1049,6 +1069,10 @@ export default function PertView({ allTodos, onOpenTodoTask, onUncompleteTask, p
         @keyframes slideInRight {
           from { transform: translateX(100%); opacity: 0; }
           to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes slideInUp {
+          from { transform: translateY(100%); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
         }
       `}</style>
     </div>
