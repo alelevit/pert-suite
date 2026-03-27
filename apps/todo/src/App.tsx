@@ -2186,8 +2186,13 @@ function TaskDetailPanel({ task, allTodos, sections, onClose, onUpdate, onComple
                                     setEditPriority(parsed.detectedPriority);
                                 }
                                 if (parsed.detectedDate) {
-                                    updates.dueDate = parsed.detectedDate;
-                                    setEditDueDate(parsed.detectedDate);
+                                    if (parsed.isDueDate) {
+                                        updates.dueDate = parsed.detectedDate;
+                                        setEditDueDate(parsed.detectedDate);
+                                    } else {
+                                        updates.scheduledDate = parsed.detectedDate;
+                                        setEditScheduledDate(parsed.detectedDate);
+                                    }
                                 }
                                 if (parsed.detectedRecurrence) {
                                     if (parsed.detectedRecurrence.daysOfWeek) {
