@@ -1,8 +1,14 @@
 import express from 'express';
 import cors from 'cors';
-import pg from 'pg';
+import { Pool, neonConfig } from '@neondatabase/serverless';
+import ws from 'ws';
 import path from 'path';
 import { fileURLToPath } from 'url';
+
+// Neon's serverless Pool tunnels Postgres over WebSockets so connections are
+// short-lived and the compute can autosuspend when idle. In Node we have to
+// supply a WebSocket implementation; in Edge runtimes WS is built in.
+neonConfig.webSocketConstructor = ws;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -13,9 +19,13 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
 // Database
 // ──────────────────────────────────────
 
-const pool = new pg.Pool({
+// DATABASE_URL should point at Neon's pooled host (contains "-pooler") so
+// connections terminate at Neon's pgbouncer rather than holding a session
+// open against the compute. Small max + short idle timeout reinforces this.
+const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: process.env.DATABASE_URL?.includes('neon.tech') ? { rejectUnauthorized: false } : undefined,
+    max: 5,
+    idleTimeoutMillis: 10_000,
 });
 
 async function initDb() {
@@ -1147,15 +1157,6 @@ initDb().then(() => {
         console.log(`   API:       /api`);
         console.log(`   Database:  PostgreSQL (Neon)`);
     });
-
-    // Keep Neon serverless DB warm — prevent compute suspension (every 4 min)
-    setInterval(async () => {
-        try {
-            await pool.query('SELECT 1');
-        } catch (err) {
-            console.warn('DB keep-alive failed:', err);
-        }
-    }, 4 * 60 * 1000);
 }).catch(err => {
     console.error('Failed to initialize database:', err);
     process.exit(1);
