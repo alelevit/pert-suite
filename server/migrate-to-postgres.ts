@@ -1,7 +1,10 @@
-import pg from 'pg';
+import { Pool, neonConfig } from '@neondatabase/serverless';
+import ws from 'ws';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+
+neonConfig.webSocketConstructor = ws;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -9,9 +12,8 @@ const __dirname = path.dirname(__filename);
 const DATABASE_URL = process.env.DATABASE_URL!;
 const DATA_DIR = path.join(__dirname, '..', 'data');
 
-const pool = new pg.Pool({
+const pool = new Pool({
     connectionString: DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
 });
 
 async function migrate() {
