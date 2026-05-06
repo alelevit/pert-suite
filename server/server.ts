@@ -13,9 +13,13 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
 // Database
 // ──────────────────────────────────────
 
+// Small pool + short idle timeout so connections close quickly after each request.
+// Combined with no keep-alive ping, this lets Neon's compute autosuspend during idle periods.
 const pool = new pg.Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: process.env.DATABASE_URL?.includes('neon.tech') ? { rejectUnauthorized: false } : undefined,
+    max: 5,
+    idleTimeoutMillis: 10_000,
 });
 
 async function initDb() {
@@ -1147,15 +1151,6 @@ initDb().then(() => {
         console.log(`   API:       /api`);
         console.log(`   Database:  PostgreSQL (Neon)`);
     });
-
-    // Keep Neon serverless DB warm — prevent compute suspension (every 4 min)
-    setInterval(async () => {
-        try {
-            await pool.query('SELECT 1');
-        } catch (err) {
-            console.warn('DB keep-alive failed:', err);
-        }
-    }, 4 * 60 * 1000);
 }).catch(err => {
     console.error('Failed to initialize database:', err);
     process.exit(1);
