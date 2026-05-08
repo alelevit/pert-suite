@@ -97,6 +97,67 @@ async function initDb() {
             console.log(`🧹 Cleaned up ${dupeResult.rowCount} duplicate PERT-linked todos`);
         }
 
+        // ── Seed: LegalZoom subscription cancellation checklist ──
+        // Stable IDs + ON CONFLICT DO NOTHING make this idempotent across deploys.
+        // Created_at offsets preserve the intended ordering inside the inbox.
+        const SEED_BASE_TS = 1746662400000; // 2026-05-08T00:00:00Z
+        const legalZoomSeeds: Array<{
+            id: string;
+            title: string;
+            description: string;
+            priority: 'p1' | 'p2' | 'p3' | 'none';
+            dueDate?: string;
+            recurrence?: { pattern: string; interval?: number };
+        }> = [
+            {
+                id: 'seed-legalzoom-1',
+                title: 'LegalZoom: audit which subscriptions are actually billing',
+                description: 'Log into LegalZoom and check exactly which subscriptions are billing — there may be more than one (registered agent, attorney plan, LZ Books, etc.). Cancel only what you mean to.',
+                priority: 'p1',
+            },
+            {
+                id: 'seed-legalzoom-2',
+                title: 'If LegalZoom is the registered agent, file change of RA on Sunbiz first',
+                description: 'Before cancelling, file a change of registered agent on Sunbiz designating yourself, your wife, or a new RA service. Otherwise the LLC ends up without an agent of record.',
+                priority: 'p1',
+            },
+            {
+                id: 'seed-legalzoom-3',
+                title: 'Download LegalZoom documents to keep',
+                description: 'Pull copies of the operating agreement, EIN letter, formation docs, and anything else worth keeping — before cancelling.',
+                priority: 'p1',
+            },
+            {
+                id: 'seed-legalzoom-4',
+                title: 'Cancel LegalZoom subscriptions (prefer phone)',
+                description: 'Phone cancellation is reportedly more reliable than the dashboard. General: 800-773-0888. Subscriptions: 888-310-0151.',
+                priority: 'p1',
+            },
+            {
+                id: 'seed-legalzoom-5',
+                title: 'File FL annual report at sunbiz.org',
+                description: 'Annual reminder for early March: file the Florida LLC annual report at sunbiz.org.',
+                priority: 'p3',
+                dueDate: '2027-03-01',
+                recurrence: { pattern: 'monthly', interval: 12 },
+            },
+        ];
+        let seededCount = 0;
+        for (let i = 0; i < legalZoomSeeds.length; i++) {
+            const t = legalZoomSeeds[i];
+            const ts = SEED_BASE_TS + i;
+            const r = await client.query(
+                `INSERT INTO todos (id, title, description, completed, due_date, priority, labels, section, recurrence, created_at, updated_at)
+                 VALUES ($1, $2, $3, false, $4, $5, '[]'::jsonb, 'inbox', $6, $7, $7)
+                 ON CONFLICT (id) DO NOTHING`,
+                [t.id, t.title, t.description, t.dueDate ?? null, t.priority, t.recurrence ? JSON.stringify(t.recurrence) : null, ts]
+            );
+            if (r.rowCount) seededCount += r.rowCount;
+        }
+        if (seededCount > 0) {
+            console.log(`🌱 Seeded ${seededCount} LegalZoom checklist tasks`);
+        }
+
         console.log('✅ Database tables and indexes initialized');
     } finally {
         client.release();
