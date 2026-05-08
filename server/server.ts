@@ -1145,11 +1145,34 @@ app.get('/', (_req, res) => {
     res.redirect('/todo');
 });
 
+// One-shot seed: FL registered-agent renewal sequence (P1 inbox tasks).
+// Idempotent — INSERT ... ON CONFLICT DO NOTHING so re-deploys never
+// overwrite user edits or re-create completed/deleted tasks.
+async function seedRARenewalTasks(): Promise<void> {
+    const tasks = [
+        { id: 'seed-ra-renewal-1', title: 'Sign up with new FL registered agent (Northwest or equivalent)', description: 'Get RA name, FL street address, and signed acceptance. Do this first so the change form has the new RA info ready.' },
+        { id: 'seed-ra-renewal-2', title: 'Mail RA change form + $25 check to Sunbiz', description: 'Allow 1–2 weeks for processing. Pay extra ~$8.75 for expedited if cutting it close to the auto-renewal date.' },
+        { id: 'seed-ra-renewal-3', title: 'Verify new RA on Sunbiz public record', description: 'Search the LLC on sunbiz.org and confirm the new registered agent is showing before doing anything else (esp. before cancelling LegalZoom).' },
+        { id: 'seed-ra-renewal-4', title: 'Cancel LegalZoom RA service (888-310-0151)', description: "They'll try to talk you out of it — be firm. Get a confirmation email." },
+        { id: 'seed-ra-renewal-5', title: 'Same LegalZoom call: cancel State Compliance Filings ($199) + Business Licenses & Permits ($99)', description: 'Knock all three cancellations out on the same call. Confirm each in writing.' },
+    ];
+    const now = Date.now();
+    for (let i = 0; i < tasks.length; i++) {
+        const t = tasks[i];
+        await pool.query(
+            `INSERT INTO todos (id, title, description, completed, priority, labels, section, created_at, updated_at)
+             VALUES ($1, $2, $3, false, 'p1', '[]'::jsonb, 'inbox', $4, $4)
+             ON CONFLICT (id) DO NOTHING`,
+            [t.id, t.title, t.description, now + i]
+        );
+    }
+}
+
 // ──────────────────────────────────────
 // Start
 // ──────────────────────────────────────
 
-initDb().then(() => {
+initDb().then(seedRARenewalTasks).then(() => {
     app.listen(PORT, '0.0.0.0', () => {
         console.log(`📁 PERT Suite running at http://0.0.0.0:${PORT}`);
         console.log(`   Todo app:  /todo`);
