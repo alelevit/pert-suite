@@ -5,7 +5,7 @@
 // Usage:  node scripts/seed-ra-renewal.mjs
 // Override target:  API_BASE=http://localhost:3001/api node scripts/seed-ra-renewal.mjs
 
-const API_BASE = process.env.API_BASE || 'https://pert-suite-server.onrender.com/api';
+const API_BASE = process.env.API_BASE || 'https://pert-suite-production.up.railway.app/api';
 
 const tasks = [
     {
