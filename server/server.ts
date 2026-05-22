@@ -1210,15 +1210,30 @@ app.get('/', (_req, res) => {
 // Start
 // ──────────────────────────────────────
 
-initDb().then(() => {
-    app.listen(PORT, '0.0.0.0', () => {
-        console.log(`📁 PERT Suite running at http://0.0.0.0:${PORT}`);
-        console.log(`   Todo app:  /todo`);
-        console.log(`   PERT app:  /pert`);
-        console.log(`   API:       /api`);
-        console.log(`   Database:  PostgreSQL (Neon)`);
-    });
-}).catch(err => {
-    console.error('Failed to initialize database:', err);
-    process.exit(1);
+// Listen first so /health responds while Neon's compute is cold-starting,
+// then run initDb in the background with exponential backoff. A slow Neon
+// wake-up used to crash the process, burn through Railway's restart budget,
+// and leave the edge returning `host_not_allowed`; this keeps us up instead.
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`📁 PERT Suite running at http://0.0.0.0:${PORT}`);
+    console.log(`   Todo app:  /todo`);
+    console.log(`   PERT app:  /pert`);
+    console.log(`   API:       /api`);
+    console.log(`   Database:  PostgreSQL (Neon)`);
 });
+
+async function initDbWithRetry() {
+    let delayMs = 2000;
+    for (let attempt = 1; ; attempt++) {
+        try {
+            await initDb();
+            return;
+        } catch (err) {
+            console.error(`initDb attempt ${attempt} failed; retrying in ${delayMs}ms:`, err);
+            await new Promise(r => setTimeout(r, delayMs));
+            delayMs = Math.min(delayMs * 2, 60_000);
+        }
+    }
+}
+
+initDbWithRetry();
