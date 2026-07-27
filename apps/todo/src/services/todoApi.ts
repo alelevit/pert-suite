@@ -2,6 +2,16 @@ import type { TodoTask } from '@pert-suite/shared';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
+/** Hard cap so a wedged /api/todos (e.g. Neon hang) cannot leave Today loading forever. */
+const FETCH_TIMEOUT_MS = 15_000;
+
+function fetchWithTimeout(input: string | URL, init: RequestInit = {}): Promise<Response> {
+    const timeout = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+    const userSignal = init.signal;
+    const signal = userSignal ? AbortSignal.any([userSignal, timeout]) : timeout;
+    return fetch(input, { ...init, signal });
+}
+
 // ========================
 // localStorage Cache Layer
 // ========================
@@ -107,7 +117,7 @@ export async function apiGetTodos(params?: {
     if (params?.date) url.searchParams.set('date', params.date);
     if (params?.section) url.searchParams.set('section', params.section);
     if (params?.completed !== undefined) url.searchParams.set('completed', String(params.completed));
-    const res = await fetch(url.toString());
+    const res = await fetchWithTimeout(url.toString());
     if (!res.ok) throw new Error('Failed to fetch todos');
     const data: TodoTask[] = await res.json();
     // Cache based on params
@@ -120,7 +130,7 @@ export async function apiGetTodos(params?: {
 }
 
 export async function apiGetTodayTodos(): Promise<TodoTask[]> {
-    const res = await fetch(`${API_BASE}/todos/today`);
+    const res = await fetchWithTimeout(`${API_BASE}/todos/today`);
     if (!res.ok) throw new Error('Failed to fetch today todos');
     const data: TodoTask[] = await res.json();
     saveToCache(CACHE_KEYS.today, data);
@@ -128,7 +138,7 @@ export async function apiGetTodayTodos(): Promise<TodoTask[]> {
 }
 
 export async function apiCreateTodo(todo: Partial<TodoTask>): Promise<TodoTask> {
-    const res = await fetch(`${API_BASE}/todos`, {
+    const res = await fetchWithTimeout(`${API_BASE}/todos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(todo),
@@ -140,7 +150,7 @@ export async function apiCreateTodo(todo: Partial<TodoTask>): Promise<TodoTask> 
 }
 
 export async function apiUpdateTodo(id: string, updates: Partial<TodoTask>): Promise<TodoTask> {
-    const res = await fetch(`${API_BASE}/todos/${id}`, {
+    const res = await fetchWithTimeout(`${API_BASE}/todos/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
@@ -152,13 +162,13 @@ export async function apiUpdateTodo(id: string, updates: Partial<TodoTask>): Pro
 }
 
 export async function apiDeleteTodo(id: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/todos/${id}`, { method: 'DELETE' });
+    const res = await fetchWithTimeout(`${API_BASE}/todos/${id}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('Failed to delete todo');
     notifySiblingTabs();
 }
 
 export async function apiCompleteTodo(id: string): Promise<{ completed: TodoTask; next?: TodoTask }> {
-    const res = await fetch(`${API_BASE}/todos/${id}/complete`, { method: 'POST' });
+    const res = await fetchWithTimeout(`${API_BASE}/todos/${id}/complete`, { method: 'POST' });
     if (!res.ok) throw new Error('Failed to complete todo');
     const data = await res.json();
     notifySiblingTabs();
@@ -166,7 +176,7 @@ export async function apiCompleteTodo(id: string): Promise<{ completed: TodoTask
 }
 
 export async function apiGetUpcomingTodos(): Promise<TodoTask[]> {
-    const res = await fetch(`${API_BASE}/todos/upcoming`);
+    const res = await fetchWithTimeout(`${API_BASE}/todos/upcoming`);
     if (!res.ok) throw new Error('Failed to fetch upcoming todos');
     const data: TodoTask[] = await res.json();
     saveToCache(CACHE_KEYS.upcoming, data);
@@ -174,7 +184,7 @@ export async function apiGetUpcomingTodos(): Promise<TodoTask[]> {
 }
 
 export async function apiGetSections(): Promise<string[]> {
-    const res = await fetch(`${API_BASE}/todos/sections`);
+    const res = await fetchWithTimeout(`${API_BASE}/todos/sections`);
     if (!res.ok) throw new Error('Failed to fetch sections');
     const data: string[] = await res.json();
     saveToCache(CACHE_KEYS.sections, data);
@@ -202,7 +212,7 @@ Given their task list, provide brief, actionable suggestions:
 - Note any tasks that might conflict or be better moved to another day
 Keep your response concise (3-5 bullet points). Be friendly and practical.`;
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -294,7 +304,7 @@ export async function apiGetPertImpact(
     currentScheduledDate?: string,
     currentDueDate?: string
 ): Promise<PertImpactResult> {
-    const res = await fetch(`${API_BASE}/projects/${projectId}/impact`, {
+    const res = await fetchWithTimeout(`${API_BASE}/projects/${projectId}/impact`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pertTaskId, newScheduledDate, newDueDate, currentScheduledDate, currentDueDate }),
