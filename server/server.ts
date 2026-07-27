@@ -19,6 +19,16 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
 // Database
 // ──────────────────────────────────────
 
+// Fail fast when Neon is asleep, unreachable, or DATABASE_URL is missing.
+// Without these bounds, pool.connect()/query() can hang forever and the
+// todo UI sticks on the Today loading strip.
+const DB_CONNECT_TIMEOUT_MS = 8_000;
+const DB_QUERY_TIMEOUT_MS = 12_000;
+
+if (!process.env.DATABASE_URL?.trim()) {
+    console.error('[db] DATABASE_URL is not set — /api/todos will return 503 until it is configured');
+}
+
 // DATABASE_URL should point at Neon's pooled host (contains "-pooler") so
 // connections terminate at Neon's pgbouncer rather than holding a session
 // open against the compute. Small max + short idle timeout reinforces this.
@@ -26,10 +36,30 @@ const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     max: 5,
     idleTimeoutMillis: 10_000,
+    connectionTimeoutMillis: DB_CONNECT_TIMEOUT_MS,
 });
 
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    });
+    return Promise.race([promise, timeout]).finally(() => {
+        if (timer) clearTimeout(timer);
+    }) as Promise<T>;
+}
+
+/** pool.query with a hard timeout so a wedged Neon WS cannot hang HTTP handlers. */
+function dbQuery(text: string, params?: unknown[]) {
+    return withTimeout(
+        params === undefined ? pool.query(text) : pool.query(text, params),
+        DB_QUERY_TIMEOUT_MS,
+        'db query',
+    );
+}
+
 async function initDb() {
-    const client = await pool.connect();
+    const client = await withTimeout(pool.connect(), DB_CONNECT_TIMEOUT_MS, 'db connect');
     try {
         await client.query(`
             CREATE TABLE IF NOT EXISTS projects (
@@ -167,9 +197,27 @@ async function initDb() {
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-// Health check
+// Health check — process liveness (Railway). Does not wait on Neon.
 app.get('/health', (_req, res) => {
     res.json({ status: 'ok' });
+});
+
+// DB probe — returns quickly even when Neon is down (used by ops / debugging).
+app.get('/api/health', async (_req, res) => {
+    if (!process.env.DATABASE_URL?.trim()) {
+        return res.status(503).json({ ok: false, db: 'missing_DATABASE_URL' });
+    }
+    try {
+        await dbQuery('SELECT 1');
+        return res.json({ ok: true, db: 'up' });
+    } catch (err) {
+        console.error('[api/health] db check failed:', err);
+        return res.status(503).json({
+            ok: false,
+            db: 'down',
+            error: err instanceof Error ? err.message : 'db unreachable',
+        });
+    }
 });
 
 // ──────────────────────────────────────
@@ -265,7 +313,7 @@ function rowToTodo(row: any): TodoTask {
 // GET /api/projects — list all projects
 app.get('/api/projects', async (_req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM projects ORDER BY updated_at DESC');
+        const result = await dbQuery('SELECT * FROM projects ORDER BY updated_at DESC');
         res.json(result.rows.map(rowToProject));
     } catch (err) {
         console.error('Error fetching projects:', err);
@@ -276,7 +324,7 @@ app.get('/api/projects', async (_req, res) => {
 // GET /api/projects/:id — get single project
 app.get('/api/projects/:id', async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM projects WHERE id = $1', [req.params.id]);
+        const result = await dbQuery('SELECT * FROM projects WHERE id = $1', [req.params.id]);
         if (result.rows.length === 0) {
             res.status(404).json({ error: 'Project not found' });
             return;
@@ -301,7 +349,7 @@ app.post('/api/projects', async (req, res) => {
             createdAt: now,
             updatedAt: now,
         };
-        await pool.query(
+        await dbQuery(
             `INSERT INTO projects (id, name, description, tasks, start_date, created_at, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7)`,
             [project.id, project.name, project.description, JSON.stringify(project.tasks), project.startDate || null, project.createdAt, project.updatedAt]
@@ -317,11 +365,11 @@ app.post('/api/projects', async (req, res) => {
 app.put('/api/projects/:id', async (req, res) => {
     try {
         const now = Date.now();
-        const result = await pool.query('SELECT * FROM projects WHERE id = $1', [req.params.id]);
+        const result = await dbQuery('SELECT * FROM projects WHERE id = $1', [req.params.id]);
         if (result.rows.length > 0) {
             const existing = rowToProject(result.rows[0]);
             const updated = { ...existing, ...req.body, id: existing.id, createdAt: existing.createdAt, updatedAt: now };
-            await pool.query(
+            await dbQuery(
                 `UPDATE projects SET name=$1, description=$2, tasks=$3, start_date=$4, updated_at=$5 WHERE id=$6`,
                 [updated.name, updated.description, JSON.stringify(updated.tasks), updated.startDate || null, updated.updatedAt, updated.id]
             );
@@ -333,7 +381,7 @@ app.put('/api/projects/:id', async (req, res) => {
                 createdAt: req.body.createdAt || now,
                 updatedAt: req.body.updatedAt || now,
             };
-            await pool.query(
+            await dbQuery(
                 `INSERT INTO projects (id, name, description, tasks, start_date, created_at, updated_at)
                  VALUES ($1, $2, $3, $4, $5, $6, $7)`,
                 [project.id, project.name || '', project.description || '', JSON.stringify(project.tasks || []), project.startDate || null, project.createdAt, project.updatedAt]
@@ -349,7 +397,7 @@ app.put('/api/projects/:id', async (req, res) => {
 // DELETE /api/projects/:id — delete project
 app.delete('/api/projects/:id', async (req, res) => {
     try {
-        const result = await pool.query('DELETE FROM projects WHERE id = $1 RETURNING id', [req.params.id]);
+        const result = await dbQuery('DELETE FROM projects WHERE id = $1 RETURNING id', [req.params.id]);
         if (result.rowCount === 0) {
             res.status(404).json({ error: 'Project not found' });
             return;
@@ -378,7 +426,7 @@ app.post('/api/projects/import', async (req, res) => {
             createdAt: data.createdAt || now,
             updatedAt: now,
         };
-        await pool.query(
+        await dbQuery(
             `INSERT INTO projects (id, name, description, tasks, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)`,
             [project.id, project.name, project.description, JSON.stringify(project.tasks), project.createdAt, project.updatedAt]
         );
@@ -407,7 +455,7 @@ app.post('/api/projects/migrate', async (req, res) => {
                 createdAt: p.createdAt || Date.now(),
                 updatedAt: p.updatedAt || Date.now(),
             };
-            await pool.query(
+            await dbQuery(
                 `INSERT INTO projects (id, name, description, tasks, created_at, updated_at)
                  VALUES ($1, $2, $3, $4, $5, $6)
                  ON CONFLICT (id) DO UPDATE SET name=$2, description=$3, tasks=$4, updated_at=$6`,
@@ -427,7 +475,7 @@ app.post('/api/projects/migrate', async (req, res) => {
 // ──────────────────────────────────────
 
 async function insertTodo(todo: TodoTask) {
-    await pool.query(
+    await dbQuery(
         `INSERT INTO todos (id, title, description, completed, completed_at, due_date, scheduled_date, duration_days, priority, labels, section, recurrence, pert_project_id, pert_task_id, pert_project_name, parent_id, created_at, updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
         [todo.id, todo.title, todo.description || null, todo.completed, todo.completedAt || null, todo.dueDate || null, todo.scheduledDate || null, todo.durationDays || null, todo.priority, JSON.stringify(todo.labels), todo.section, todo.recurrence ? JSON.stringify(todo.recurrence) : null, todo.pertProjectId || null, todo.pertTaskId || null, todo.pertProjectName || null, todo.parentId || null, todo.createdAt, todo.updatedAt]
@@ -435,7 +483,7 @@ async function insertTodo(todo: TodoTask) {
 }
 
 async function updateTodo(todo: TodoTask) {
-    await pool.query(
+    await dbQuery(
         `UPDATE todos SET title=$1, description=$2, completed=$3, completed_at=$4, due_date=$5, scheduled_date=$6, duration_days=$7, priority=$8, labels=$9, section=$10, recurrence=$11, pert_project_id=$12, pert_task_id=$13, pert_project_name=$14, parent_id=$15, updated_at=$16 WHERE id=$17`,
         [todo.title, todo.description || null, todo.completed, todo.completedAt || null, todo.dueDate || null, todo.scheduledDate || null, todo.durationDays || null, todo.priority, JSON.stringify(todo.labels), todo.section, todo.recurrence ? JSON.stringify(todo.recurrence) : null, todo.pertProjectId || null, todo.pertTaskId || null, todo.pertProjectName || null, todo.parentId || null, todo.updatedAt, todo.id]
     );
@@ -515,7 +563,7 @@ app.get('/api/todos', async (req, res) => {
         }
 
         const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
-        const result = await pool.query(`SELECT * FROM todos ${where} ${TODO_SORT}`, params);
+        const result = await dbQuery(`SELECT * FROM todos ${where} ${TODO_SORT}`, params);
         res.json(result.rows.map(rowToTodo));
     } catch (err) {
         console.error('Error fetching todos:', err);
@@ -526,7 +574,7 @@ app.get('/api/todos', async (req, res) => {
 // GET /api/todos/sections — list unique section names
 app.get('/api/todos/sections', async (_req, res) => {
     try {
-        const result = await pool.query('SELECT DISTINCT section FROM todos WHERE completed = false ORDER BY section');
+        const result = await dbQuery('SELECT DISTINCT section FROM todos WHERE completed = false ORDER BY section');
         res.json(result.rows.map(r => r.section));
     } catch (err) {
         console.error('Error fetching sections:', err);
@@ -545,7 +593,7 @@ app.get('/api/todos/today', async (_req, res) => {
 
         // SQL-based filtering: non-completed with relevant dates/recurrence,
         // plus tasks completed today
-        const result = await pool.query(
+        const result = await dbQuery(
             `SELECT * FROM todos WHERE
                 (
                     completed = false AND (
@@ -581,7 +629,7 @@ app.get('/api/todos/today', async (_req, res) => {
 app.get('/api/todos/upcoming', async (_req, res) => {
     try {
         const today = new Date().toISOString().split('T')[0];
-        const result = await pool.query(
+        const result = await dbQuery(
             `SELECT * FROM todos WHERE completed = false
              AND (scheduled_date > $1 OR due_date > $1)
              ORDER BY COALESCE(scheduled_date, due_date) ASC`,
@@ -628,7 +676,7 @@ app.post('/api/todos', async (req, res) => {
 // PUT /api/todos/:id — upsert (update or create) todo
 app.put('/api/todos/:id', async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM todos WHERE id = $1', [req.params.id]);
+        const result = await dbQuery('SELECT * FROM todos WHERE id = $1', [req.params.id]);
         if (result.rows.length > 0) {
             const existing = rowToTodo(result.rows[0]);
             const updated: TodoTask = {
@@ -651,7 +699,7 @@ app.put('/api/todos/:id', async (req, res) => {
 
                 if (durationChanged || dueDateChanged || scheduledDateChanged || titleChanged) {
                     try {
-                        const projResult = await pool.query('SELECT * FROM projects WHERE id = $1', [updated.pertProjectId]);
+                        const projResult = await dbQuery('SELECT * FROM projects WHERE id = $1', [updated.pertProjectId]);
                         if (projResult.rows.length > 0) {
                             const project = rowToProject(projResult.rows[0]);
                             const tasks = project.tasks as any[];
@@ -700,7 +748,7 @@ app.put('/api/todos/:id', async (req, res) => {
                                 }
 
                                 tasks[taskIdx] = pertTask;
-                                await pool.query(
+                                await dbQuery(
                                     'UPDATE projects SET tasks = $1, updated_at = $2 WHERE id = $3',
                                     [JSON.stringify(tasks), Date.now(), updated.pertProjectId]
                                 );
@@ -734,7 +782,7 @@ app.put('/api/todos/:id', async (req, res) => {
 // DELETE /api/todos/:id — delete todo
 app.delete('/api/todos/:id', async (req, res) => {
     try {
-        const result = await pool.query('DELETE FROM todos WHERE id = $1 RETURNING id', [req.params.id]);
+        const result = await dbQuery('DELETE FROM todos WHERE id = $1 RETURNING id', [req.params.id]);
         if (result.rowCount === 0) {
             res.status(404).json({ error: 'Todo not found' });
             return;
@@ -749,7 +797,7 @@ app.delete('/api/todos/:id', async (req, res) => {
 // POST /api/todos/:id/complete — mark complete (handles recurrence)
 app.post('/api/todos/:id/complete', async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM todos WHERE id = $1', [req.params.id]);
+        const result = await dbQuery('SELECT * FROM todos WHERE id = $1', [req.params.id]);
         if (result.rows.length === 0) {
             res.status(404).json({ error: 'Todo not found' });
             return;
@@ -811,7 +859,7 @@ interface PertTaskForExport {
 // POST /api/projects/:id/link-todos — create or update linked todos (upsert)
 app.post('/api/projects/:id/link-todos', async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM projects WHERE id = $1', [req.params.id]);
+        const result = await dbQuery('SELECT * FROM projects WHERE id = $1', [req.params.id]);
         if (result.rows.length === 0) {
             res.status(404).json({ error: 'Project not found' });
             return;
@@ -842,7 +890,7 @@ app.post('/api/projects/:id/link-todos', async (req, res) => {
 
             // Check if a linked todo already exists for this PERT task
             // Delete any duplicates first, keeping only the most recent
-            const existingResult = await pool.query(
+            const existingResult = await dbQuery(
                 'SELECT * FROM todos WHERE pert_project_id = $1 AND pert_task_id = $2 ORDER BY updated_at DESC',
                 [project.id, task.id]
             );
@@ -851,7 +899,7 @@ app.post('/api/projects/:id/link-todos', async (req, res) => {
                 // Delete all but the most recent
                 const keepId = existingResult.rows[0].id;
                 const extraIds = existingResult.rows.slice(1).map((r: any) => r.id);
-                await pool.query(
+                await dbQuery(
                     `DELETE FROM todos WHERE id = ANY($1::text[])`,
                     [extraIds]
                 );
@@ -900,7 +948,7 @@ app.post('/api/projects/:id/link-todos', async (req, res) => {
         }
 
         // Mark the project as linked
-        await pool.query(
+        await dbQuery(
             'UPDATE projects SET linked = true, updated_at = $1 WHERE id = $2',
             [Date.now(), project.id]
         );
@@ -915,7 +963,7 @@ app.post('/api/projects/:id/link-todos', async (req, res) => {
 // GET /api/projects/:id/linked-todos — get all todos linked to a project
 app.get('/api/projects/:id/linked-todos', async (req, res) => {
     try {
-        const result = await pool.query(
+        const result = await dbQuery(
             'SELECT * FROM todos WHERE pert_project_id = $1 ORDER BY scheduled_date ASC',
             [req.params.id]
         );
@@ -931,7 +979,7 @@ app.get('/api/projects/:id/linked-todos', async (req, res) => {
 // Returns: { warnings: string[], affectedTasks: string[], criticalPath: boolean, projectEndDelta: number }
 app.post('/api/projects/:id/impact', async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM projects WHERE id = $1', [req.params.id]);
+        const result = await dbQuery('SELECT * FROM projects WHERE id = $1', [req.params.id]);
         if (result.rows.length === 0) {
             res.status(404).json({ error: 'Project not found' });
             return;
@@ -1061,7 +1109,7 @@ app.post('/api/projects/:id/impact', async (req, res) => {
         }
 
         // Look up the existing linked todo to get current dates as fallbacks
-        const linkedTodoResult = await pool.query(
+        const linkedTodoResult = await dbQuery(
             'SELECT * FROM todos WHERE pert_project_id = $1 AND pert_task_id = $2 LIMIT 1',
             [req.params.id, pertTaskId]
         );
@@ -1165,11 +1213,11 @@ app.post('/api/projects/:id/impact', async (req, res) => {
 app.delete('/api/projects/:id/linked-todos', async (req, res) => {
     try {
         // Remove PERT link fields but keep the todos
-        await pool.query(
+        await dbQuery(
             `UPDATE todos SET pert_project_id = NULL, pert_task_id = NULL, pert_project_name = NULL, updated_at = $1 WHERE pert_project_id = $2`,
             [Date.now(), req.params.id]
         );
-        await pool.query(
+        await dbQuery(
             'UPDATE projects SET linked = false, updated_at = $1 WHERE id = $2',
             [Date.now(), req.params.id]
         );

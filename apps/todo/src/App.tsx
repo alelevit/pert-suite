@@ -265,6 +265,9 @@ function App() {
         return !cached || cached.length === 0;
     });
     const [refreshing, setRefreshing] = useState(false);
+    const [loadError, setLoadError] = useState<string | null>(null);
+    const todosRef = useRef(todos);
+    todosRef.current = todos;
     const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
     const [pertRefreshKey, setPertRefreshKey] = useState(0);
     const [autoLoadProjectId, setAutoLoadProjectId] = useState<string | null>(null);
@@ -315,10 +318,10 @@ function App() {
 
     const refreshTodos = useCallback(async () => {
         try {
-            // Only show loading spinner if we have no data at all
-            setLoading(prev => todos.length === 0 ? true : prev);
-            // Show subtle refreshing indicator if we have cached data
-            if (todos.length > 0) setRefreshing(true);
+            // Use a ref so a stale closure can't keep flipping loading=true after
+            // the first successful fetch (deps intentionally omit `todos`).
+            if (todosRef.current.length === 0) setLoading(true);
+            else setRefreshing(true);
 
             // Determine the view-specific fetch
             let viewFetchPromise: Promise<TodoTask[]>;
@@ -348,8 +351,10 @@ function App() {
 
             setTodos(data);
             setAllTodos(all);
+            setLoadError(null);
         } catch (e) {
             console.error('Failed to load todos:', e);
+            setLoadError(e instanceof Error ? e.message : 'Failed to load todos');
         } finally {
             setLoading(false);
             setRefreshing(false);
@@ -915,6 +920,38 @@ function App() {
                             100% { transform: translateX(100%); }
                         }
                     `}</style>
+
+                    {loadError && (
+                        <div style={{
+                            margin: '12px 32px 0',
+                            padding: '10px 14px',
+                            borderRadius: '8px',
+                            background: 'rgba(239, 68, 68, 0.12)',
+                            color: 'var(--accent-critical, #ef4444)',
+                            fontSize: '13px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '12px',
+                        }}>
+                            <span>Couldn’t load tasks ({loadError}). The database may be unreachable.</span>
+                            <button
+                                onClick={() => refreshTodos()}
+                                style={{
+                                    flexShrink: 0,
+                                    padding: '4px 10px',
+                                    borderRadius: '6px',
+                                    border: '1px solid currentColor',
+                                    background: 'transparent',
+                                    color: 'inherit',
+                                    cursor: 'pointer',
+                                    fontSize: '12px',
+                                }}
+                            >
+                                Retry
+                            </button>
+                        </div>
+                    )}
 
                     {/* Task List */}
                     <div style={{ flex: 1, overflowY: 'auto', padding: '24px 32px' }}>
