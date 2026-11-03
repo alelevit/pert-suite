@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import type { PertTask } from './logic/pert';
 import { calculateCPM, createEmptyTask, computeCalendarDates } from './logic/pert';
+import { sampleProjectTasks } from './logic/sampleProject';
 import type { CalendarRange } from './logic/pert';
 import GraphView from './components/GraphView';
 import TaskReviewPage from './components/TaskReviewPage';
@@ -16,12 +17,7 @@ function formatShortDate(dateStr: string): string {
 }
 
 function App() {
-  const [tasks, setTasks] = useState<PertTask[]>([
-    { id: '1', name: 'Define Scope', optimistic: 1, likely: 2, pessimistic: 3, dependencies: [] },
-    { id: '2', name: 'Market Research', optimistic: 2, likely: 3, pessimistic: 6, dependencies: ['1'] },
-    { id: '3', name: 'Technical Spec', optimistic: 1, likely: 2, pessimistic: 4, dependencies: ['1'] },
-    { id: '4', name: 'Prototype', optimistic: 3, likely: 5, pessimistic: 8, dependencies: ['2', '3'] },
-  ]);
+  const [tasks, setTasks] = useState<PertTask[]>(sampleProjectTasks);
 
   const [prompt, setPrompt] = useState('');
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('pert_api_key') || '');

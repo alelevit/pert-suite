@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import type { TodoTask } from '@pert-suite/shared';
 import type { PertTask } from '../../logic/pert';
 import { calculateCPM, computeCalendarDates } from '../../logic/pert';
+import { sampleProjectTasks } from '../../logic/sampleProject';
 import type { CalendarRange } from '../../logic/pert';
 import GraphView from './GraphView';
 import TaskReviewPage from './TaskReviewPage';
@@ -21,13 +22,6 @@ interface PertViewProps {
   onProjectLoaded?: () => void;
 }
 
-const defaultExampleTasks: PertTask[] = [
-  { id: '1', name: 'Define Scope', optimistic: 1, likely: 2, pessimistic: 3, dependencies: [] },
-  { id: '2', name: 'Market Research', optimistic: 2, likely: 3, pessimistic: 6, dependencies: ['1'] },
-  { id: '3', name: 'Technical Spec', optimistic: 1, likely: 2, pessimistic: 4, dependencies: ['1'] },
-  { id: '4', name: 'Prototype', optimistic: 3, likely: 5, pessimistic: 8, dependencies: ['2', '3'] },
-];
-
 export default function PertView({ allTodos, onOpenTodoTask, onUncompleteTask, pertRefreshKey, autoLoadProjectId, onProjectLoaded }: PertViewProps) {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
   useEffect(() => {
@@ -38,7 +32,7 @@ export default function PertView({ allTodos, onOpenTodoTask, onUncompleteTask, p
   }, []);
 
   // When navigating from "Go to Chart", start empty so we don't flash default tasks
-  const [tasks, setTasks] = useState<PertTask[]>(autoLoadProjectId ? [] : defaultExampleTasks);
+  const [tasks, setTasks] = useState<PertTask[]>(autoLoadProjectId ? [] : sampleProjectTasks);
   const [isAutoLoading, setIsAutoLoading] = useState(!!autoLoadProjectId);
 
   const [prompt, setPrompt] = useState('');
