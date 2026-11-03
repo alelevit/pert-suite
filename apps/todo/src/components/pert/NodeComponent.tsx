@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
+import { NODE_WIDTH } from '../../logic/pertLayout';
 
 function formatShortDate(dateStr: string): string {
     const d = new Date(dateStr + 'T00:00:00');
@@ -42,7 +43,9 @@ export default function NodeComponent({ data }: { data: NodeData }) {
                 border: `2px solid ${borderColor}`,
                 borderRadius: '10px',
                 padding: '10px 14px',
-                minWidth: '200px',
+                // Fixed width so the layout's grid spacing is exact; long names truncate.
+                width: `${NODE_WIDTH}px`,
+                boxSizing: 'border-box',
                 fontFamily: 'Inter, sans-serif',
                 color: 'var(--text-main)',
                 boxShadow: d.isCompleted
@@ -86,7 +89,7 @@ export default function NodeComponent({ data }: { data: NodeData }) {
 
             <div style={{ fontWeight: 'bold', fontSize: '13px', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                 {d.isCompleted && <span style={{ color: 'var(--accent-success)', fontSize: '14px', flexShrink: 0 }}>✓</span>}
-                <span style={{ textDecoration: d.isCompleted ? 'line-through' : 'none', opacity: d.isCompleted ? 0.7 : 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{d.name}</span>
+                <span title={d.name} style={{ textDecoration: d.isCompleted ? 'line-through' : 'none', opacity: d.isCompleted ? 0.7 : 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{d.name}</span>
                 {d.isCompleted && d.onUncomplete && (
                     <button
                         onClick={(e) => { e.stopPropagation(); d.onUncomplete!(); }}

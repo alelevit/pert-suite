@@ -1,4 +1,5 @@
 import { Handle, Position } from '@xyflow/react';
+import { NODE_WIDTH } from '../logic/pertLayout';
 
 function formatShortDate(dateStr: string): string {
     const d = new Date(dateStr + 'T00:00:00');
@@ -29,7 +30,9 @@ export default function NodeComponent({ data }: { data: NodeData }) {
                 border: `2px solid ${criticalColor}`,
                 borderRadius: '10px',
                 padding: '10px 14px',
-                minWidth: '200px',
+                // Fixed width so the layout's grid spacing is exact; long names truncate.
+                width: `${NODE_WIDTH}px`,
+                boxSizing: 'border-box',
                 fontFamily: 'Inter, sans-serif',
                 color: 'var(--text-main)',
                 boxShadow: d.isCritical ? `0 0 12px ${criticalColor}40` : 'none',
@@ -38,7 +41,7 @@ export default function NodeComponent({ data }: { data: NodeData }) {
             <Handle type="target" position={Position.Left} style={{ background: criticalColor }} />
             <Handle type="source" position={Position.Right} style={{ background: criticalColor }} />
 
-            <div style={{ fontWeight: 'bold', fontSize: '13px', marginBottom: '4px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+            <div title={d.name} style={{ fontWeight: 'bold', fontSize: '13px', marginBottom: '4px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
                 {d.name}
             </div>
 
